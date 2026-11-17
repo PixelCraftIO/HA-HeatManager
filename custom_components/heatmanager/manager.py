@@ -37,20 +37,31 @@ from .const import (
     CONF_AWAY_DELAY,
     CONF_AWAY_TEMP,
     CONF_CLIMATES,
+    CONF_CONTROL,
+    CONF_EXTERNAL,
     CONF_FROST_TEMP,
+    CONF_MAX_AGE,
     CONF_PRESENCE,
+    CONF_PRIMARY,
     CONF_ROOM_ID,
     CONF_ROOM_NAME,
     CONF_ROOMS,
+    CONF_SENSORS,
+    CONF_TEMP_METHOD,
+    CONF_UPPER_LIMIT,
+    CONF_WEIGHTS,
     CONF_WINDOW_DELAY,
+    CONF_WINDOW_NEAR,
     CONF_WINDOWS,
     DAYS,
     DEFAULT_AWAY_DELAY,
     DEFAULT_AWAY_TEMP,
     DEFAULT_BASE_TEMP,
     DEFAULT_FROST_TEMP,
+    DEFAULT_MAX_AGE,
     DEFAULT_WINDOW_DELAY,
     DOMAIN,
+    EXTERNAL_REFRESH_MIN,
     PROBLEM_NOT_ACCEPTING,
     PROBLEM_UNAVAILABLE,
     REASON_AWAY,
@@ -60,6 +71,7 @@ from .const import (
     REASON_PAUSED,
     REASON_PROFILE_BASE,
     REASON_PROFILE_BLOCK,
+    REASON_TOO_WARM,
     REASON_VACATION,
     REASON_WINDOW,
     RECHECK_INTERVAL_MIN,
@@ -70,6 +82,22 @@ from .const import (
     TEMP_MAX,
     TEMP_MIN,
     UNAVAILABLE_PROBLEM_AFTER,
+    WINDOW_NEAR_GRACE_MIN,
+)
+from .roomtemp import (
+    CONTROL_EXTERNAL,
+    CONTROL_THERMOSTAT,
+    CONTROLS,
+    METHOD_MEAN,
+    METHODS,
+    OFFSET_RESEND,
+    SOURCE_SENSORS,
+    SOURCE_THERMOSTATS,
+    combine,
+    compensated,
+    parse_reading,
+    smooth_offset,
+    too_warm,
 )
 from .schedule import MINUTES_PER_DAY, next_change, next_target, normalize_week, parse_time, profile_target
 
@@ -77,6 +105,12 @@ _LOGGER = logging.getLogger(__name__)
 
 CLIMATE_DOMAIN = "climate"
 SERVICE_SET_TEMPERATURE = "set_temperature"
+NUMBER_DOMAIN = "number"
+SERVICE_SET_VALUE = "set_value"
+# Reasons for which a setpoint means comfort (compensated per thermostat); the others mean "stay cold"
+COMFORT_REASONS = (REASON_PROFILE_BLOCK, REASON_PROFILE_BASE, REASON_AWAY, REASON_OVERRIDE)
+# Reasons the upper limit may lower (an explicit override is the user's wish and stays)
+LIMITED_REASONS = (REASON_PROFILE_BLOCK, REASON_PROFILE_BASE, REASON_AWAY)
 
 
 def slugify_name(name: str) -> str:
@@ -96,6 +130,17 @@ class Room:
     windows: list[str]
     area: str | None = None
     area_name: str | None = None
+    # external temperature sensors and how they are combined
+    sensors: list[str] = field(default_factory=list)
+    method: str = METHOD_MEAN
+    primary: str | None = None
+    weights: dict[str, float] = field(default_factory=dict)
+    window_near: list[str] = field(default_factory=list)
+    max_age: int = DEFAULT_MAX_AGE  # minutes
+    upper_limit: float | None = None  # K above target; None = off
+    control: str = CONTROL_THERMOSTAT
+    # thermostat -> number entity that takes an external temperature
+    external: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass
@@ -115,6 +160,18 @@ class RoomRuntime:
     # thermostat -> problem kind (not_accepting / unavailable)
     problems: dict[str, str] = field(default_factory=dict)
     unavailable_since: dict[str, datetime] = field(default_factory=dict)
+    # room temperature
+    room_temp: float | None = None
+    room_temp_source: str | None = None
+    readings: dict[str, float] = field(default_factory=dict)
+    too_warm: bool = False
+    window_closed_at: datetime | None = None
+    # offset compensation: thermostat -> smoothed offset and when it was updated
+    offsets: dict[str, float] = field(default_factory=dict)
+    offset_at: dict[str, datetime] = field(default_factory=dict)
+    # external inputs: number entity -> (value, when) last sent
+    external_sent: dict[str, tuple[float, datetime]] = field(default_factory=dict)
+    sensors_missing_since: datetime | None = None
 
 
 class HeatManager:
@@ -171,6 +228,15 @@ class HeatManager:
                 climates=list(raw.get(CONF_CLIMATES, [])),
                 windows=list(raw.get(CONF_WINDOWS, [])),
                 area=raw.get(CONF_AREA),
+                sensors=list(raw.get(CONF_SENSORS) or []),
+                method=raw.get(CONF_TEMP_METHOD) if raw.get(CONF_TEMP_METHOD) in METHODS else METHOD_MEAN,
+                primary=raw.get(CONF_PRIMARY) or None,
+                weights={k: float(v) for k, v in (raw.get(CONF_WEIGHTS) or {}).items()},
+                window_near=list(raw.get(CONF_WINDOW_NEAR) or []),
+                max_age=int(raw.get(CONF_MAX_AGE) or DEFAULT_MAX_AGE),
+                upper_limit=float(raw[CONF_UPPER_LIMIT]) if raw.get(CONF_UPPER_LIMIT) else None,
+                control=raw.get(CONF_CONTROL) if raw.get(CONF_CONTROL) in CONTROLS else CONTROL_THERMOSTAT,
+                external={k: v for k, v in (raw.get(CONF_EXTERNAL) or {}).items() if v},
             )
             if room.area and (area := ar.async_get(self.hass).async_get_area(room.area)):
                 room.area_name = area.name
@@ -209,6 +275,9 @@ class HeatManager:
         climates = [c for room in self.rooms.values() for c in room.climates]
         if climates:
             self._unsubs.append(async_track_state_change_event(self.hass, climates, self._on_climate_event))
+        sensors = sorted({s for room in self.rooms.values() for s in room.sensors})
+        if sensors:
+            self._unsubs.append(async_track_state_change_event(self.hass, sensors, self._on_sensor_event))
         self._unsubs.append(
             async_track_time_interval(self.hass, self._on_interval, timedelta(minutes=RECHECK_INTERVAL_MIN))
         )
@@ -226,6 +295,8 @@ class HeatManager:
         # start clean: problems that still exist are found again
         for entity_id in climates:
             ir.async_delete_issue(self.hass, DOMAIN, f"thermostat_{entity_id}")
+        for room_id in self.rooms:
+            ir.async_delete_issue(self.hass, DOMAIN, f"sensors_{room_id}")
         self.evaluate(force=True)
 
     @callback
@@ -284,7 +355,140 @@ class HeatManager:
             return self.frost_temp, REASON_WINDOW
         if (override := self.overrides.get(room.id)) and (override["until"] is None or override["until"] > now):
             return override["temp"], REASON_OVERRIDE
-        return self._plan(room, now)
+        return self._limit(room, *self._plan(room, now))
+
+    def _limit(self, room: Room, target: float | None, reason: str) -> tuple[float | None, str]:
+        """Upper limit: stop heating while any sensor is too far above the target."""
+        rt = self.runtime[room.id]
+        if target is None or reason not in LIMITED_REASONS or room.upper_limit is None:
+            rt.too_warm = False
+            return target, reason
+        sensors = {e: v for e, v in rt.readings.items() if e in room.sensors}
+        warmest = max(sensors.values()) if sensors else None
+        rt.too_warm = too_warm(warmest, target, room.upper_limit, rt.too_warm)
+        if not rt.too_warm:
+            return target, reason
+        profile = self.profiles.get(self.assignments.get(room.id, ASSIGN_MANUAL))
+        base = float(profile.get("base_temp", DEFAULT_BASE_TEMP)) if profile else None
+        lowered = base if base is not None and base < target else self.frost_temp
+        return min(lowered, target), REASON_TOO_WARM
+
+    # -------------------------------------------------------- room temperature
+    def _valid_reading(self, entity_id: str, now: datetime, max_age: int | None) -> float | None:
+        st = self.hass.states.get(entity_id)
+        if st is None or st.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
+            return None
+        if max_age is not None:
+            reported = getattr(st, "last_reported", None) or st.last_updated
+            if now - reported > timedelta(minutes=max_age):
+                return None
+        return parse_reading(st.state)
+
+    @callback
+    def update_room_temperature(self, room: Room, now: datetime | None = None) -> None:
+        """Recompute the room's actual temperature from its sensors (thermostats as fallback)."""
+        now = now or dt_util.now()
+        rt = self.runtime[room.id]
+        skip_near = self._any_window_open(room) or (
+            rt.window_closed_at is not None and now - rt.window_closed_at < timedelta(minutes=WINDOW_NEAR_GRACE_MIN)
+        )
+        readings: dict[str, float] = {}
+        for entity_id in room.sensors:
+            if skip_near and entity_id in room.window_near:
+                continue
+            if (value := self._valid_reading(entity_id, now, room.max_age)) is not None:
+                readings[entity_id] = value
+        value = combine(readings, room.method, room.weights, room.sensors, room.primary)
+        source = SOURCE_SENSORS if value is not None else None
+        if value is None:
+            own = {
+                c: v
+                for c in room.climates
+                if (st := self.hass.states.get(c)) is not None
+                and (v := parse_reading(st.attributes.get("current_temperature"))) is not None
+            }
+            if own:
+                value, source = sum(own.values()) / len(own), SOURCE_THERMOSTATS
+        rt.readings = readings
+        rt.room_temp = round(value, 2) if value is not None else None
+        rt.room_temp_source = source
+
+    @callback
+    def _update_offsets(self, room: Room, now: datetime) -> None:
+        """Track how far each thermostat's own reading is off the room temperature."""
+        rt = self.runtime[room.id]
+        if room.control == CONTROL_THERMOSTAT or rt.room_temp_source != SOURCE_SENSORS:
+            return
+        for entity_id in room.climates:
+            st = self.hass.states.get(entity_id)
+            own = parse_reading(st.attributes.get("current_temperature")) if st else None
+            if own is None:
+                continue
+            last = rt.offset_at.get(entity_id)
+            minutes = (now - last).total_seconds() / 60 if last else 0.0
+            rt.offsets[entity_id] = smooth_offset(rt.offsets.get(entity_id), own - rt.room_temp, minutes)
+            rt.offset_at[entity_id] = now
+
+    def _external_input(self, room: Room, entity_id: str) -> str | None:
+        """The usable external temperature input of a thermostat, if any."""
+        if room.control != CONTROL_EXTERNAL or not (number := room.external.get(entity_id)):
+            return None
+        st = self.hass.states.get(number)
+        if st is None or st.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
+            return None
+        return number
+
+    def setpoint_for(self, room: Room, entity_id: str, target: float, reason: str | None) -> float:
+        """What one thermostat should be set to so that the room reaches the target."""
+        rt = self.runtime[room.id]
+        if (
+            room.control == CONTROL_THERMOSTAT
+            or reason not in COMFORT_REASONS
+            or rt.room_temp_source != SOURCE_SENSORS
+            or self._external_input(room, entity_id) is not None
+            or (offset := rt.offsets.get(entity_id)) is None
+        ):
+            return target
+        st = self.hass.states.get(entity_id)
+        attrs = st.attributes if st else {}
+        return compensated(
+            target,
+            offset,
+            float(attrs.get("target_temp_step") or 0.5),
+            float(attrs.get("min_temp", TEMP_MIN)),
+            float(attrs.get("max_temp", TEMP_MAX)),
+        )
+
+    @callback
+    def _push_external(self, room: Room, now: datetime) -> None:
+        """Send the room temperature to thermostats that take an external reading."""
+        rt = self.runtime[room.id]
+        if room.control != CONTROL_EXTERNAL or rt.room_temp_source != SOURCE_SENSORS or rt.room_temp is None:
+            return
+        for entity_id in room.climates:
+            if (number := self._external_input(room, entity_id)) is None:
+                continue
+            attrs = self.hass.states.get(number).attributes
+            step = float(attrs.get("step") or 0.1)
+            value = round(round(rt.room_temp / step) * step, 2)
+            value = max(float(attrs.get("min", value)), min(float(attrs.get("max", value)), value))
+            last = rt.external_sent.get(number)
+            if last and abs(last[0] - value) < 0.1 and now - last[1] < timedelta(minutes=EXTERNAL_REFRESH_MIN):
+                continue
+            rt.external_sent[number] = (value, now)
+            self.hass.async_create_task(
+                self.hass.services.async_call(
+                    NUMBER_DOMAIN, SERVICE_SET_VALUE, {ATTR_ENTITY_ID: number, "value": value}, blocking=False
+                ),
+                eager_start=True,
+            )
+
+    @callback
+    def _on_sensor_event(self, event: Event[EventStateChangedData]) -> None:
+        entity_id = event.data["entity_id"]
+        room_ids = [r.id for r in self.rooms.values() if entity_id in r.sensors]
+        if room_ids:
+            self.evaluate(room_ids=room_ids)
 
     def _plan(self, room: Room, now: datetime, away: bool | None = None) -> tuple[float | None, str]:
         """Target without window and override: vacation, pause, frost, manual or profile (lowered when away)."""
@@ -357,11 +561,23 @@ class HeatManager:
             if room_ids is not None and room.id not in room_ids:
                 continue
             rt = self.runtime[room.id]
+            self.update_room_temperature(room, now)
+            self._check_sensors(room, now)
+            self._update_offsets(room, now)
+            self._push_external(room, now)
             target, reason = self.compute(room, now)
             changed = target is not None and (rt.target is None or abs(rt.target - target) >= 0.05)
             rt.target, rt.reason = target, reason
-            if target is not None and (changed or force):
-                self._send_room(room, target)
+            if target is None:
+                continue
+            for entity_id in room.climates:
+                setpoint = self.setpoint_for(room, entity_id, target, reason)
+                wanted = rt.wanted.get(entity_id)
+                st = self.hass.states.get(entity_id)
+                compare = self._clamp(st, setpoint) if st is not None else setpoint
+                drift = wanted is not None and abs(wanted - compare) >= OFFSET_RESEND
+                if changed or force or drift:
+                    self._send_climate(room, entity_id, setpoint, attempt=0)
         self._schedule_next_boundary(now)
         async_dispatcher_send(self.hass, f"{SIGNAL_UPDATE}_{self.entry.entry_id}")
 
@@ -406,6 +622,30 @@ class HeatManager:
                         self._clear_problem(room, entity_id)
 
     @callback
+    def _check_sensors(self, room: Room, now: datetime) -> None:
+        """Report a room whose temperature sensors all failed for an hour."""
+        rt = self.runtime[room.id]
+        issue_id = f"sensors_{room.id}"
+        if not room.sensors or rt.room_temp_source == SOURCE_SENSORS:
+            if rt.sensors_missing_since is not None:
+                rt.sensors_missing_since = None
+                ir.async_delete_issue(self.hass, DOMAIN, issue_id)
+            return
+        if rt.sensors_missing_since is None:
+            rt.sensors_missing_since = now
+        if (now - rt.sensors_missing_since).total_seconds() >= UNAVAILABLE_PROBLEM_AFTER:
+            ir.async_create_issue(
+                self.hass,
+                DOMAIN,
+                issue_id,
+                is_fixable=False,
+                is_persistent=False,
+                severity=ir.IssueSeverity.WARNING,
+                translation_key="sensors_unavailable",
+                translation_placeholders={"room": room.name, "sensors": ", ".join(room.sensors)},
+            )
+
+    @callback
     def _set_problem(self, room: Room, entity_id: str, kind: str, temp: float | None = None) -> None:
         rt = self.runtime[room.id]
         if rt.problems.get(entity_id) == kind:
@@ -444,11 +684,6 @@ class HeatManager:
 
     # ---------------------------------------------------------------- sending
     @callback
-    def _send_room(self, room: Room, temp: float) -> None:
-        for entity_id in room.climates:
-            self._send_climate(room, entity_id, temp, attempt=0)
-
-    @callback
     def _send_climate(self, room: Room, entity_id: str, temp: float, attempt: int) -> None:
         state = self.hass.states.get(entity_id)
         if state is None or state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
@@ -479,7 +714,7 @@ class HeatManager:
         def _check(_now: datetime) -> None:
             rt.retry_timers.pop(entity_id, None)
             # Only retry while we still want this temperature
-            if rt.target is None or abs(self._clamp(state, rt.target) - temp) >= 0.05:
+            if rt.target is None or abs(rt.wanted.get(entity_id, temp) - temp) >= 0.05:
                 return
             st = self.hass.states.get(entity_id)
             if st is None or st.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
@@ -528,6 +763,9 @@ class HeatManager:
             )
             return
         # all windows closed
+        old = event.data["old_state"]
+        if old is not None and old.state == STATE_ON:
+            rt.window_closed_at = dt_util.now()
         if rt.window_timer:
             rt.window_timer()
             rt.window_timer = None
@@ -571,6 +809,8 @@ class HeatManager:
         room = self._room_for(entity_id, "climates")
         if room is not None:
             rt = self.runtime[room.id]
+            if rt.room_temp_source != SOURCE_SENSORS:
+                self.update_room_temperature(room)
             temp = new.attributes.get(ATTR_TEMPERATURE)
             # Thermostat confirmed our target: no retry needed any more
             wanted = rt.wanted.get(entity_id, rt.target)
@@ -584,7 +824,8 @@ class HeatManager:
         if old is None or old.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
             # thermostat came back: make sure it has the right target
             if room and (target := self.runtime[room.id].target) is not None:
-                self._send_climate(room, entity_id, target, attempt=0)
+                reason = self.runtime[room.id].reason
+                self._send_climate(room, entity_id, self.setpoint_for(room, entity_id, target, reason), attempt=0)
         if new.attributes.get(ATTR_TEMPERATURE) != (old.attributes.get(ATTR_TEMPERATURE) if old else None):
             async_dispatcher_send(self.hass, f"{SIGNAL_UPDATE}_{self.entry.entry_id}")
 
@@ -820,6 +1061,12 @@ class HeatManager:
             "override": None,
             "plan_change": None,
             "problems": [{"entity_id": e, "kind": k} for e, k in rt.problems.items()],
+            "room_temp": rt.room_temp,
+            "room_temp_source": rt.room_temp_source,
+            "sensors": room.sensors,
+            "sensors_valid": sorted(rt.readings),
+            "too_warm": rt.too_warm,
+            "control": room.control,
         }
         now = dt_util.now()
         info["today"] = self.today(room, now)

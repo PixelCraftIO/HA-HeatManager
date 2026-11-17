@@ -53,6 +53,16 @@ async def async_get_config_entry_diagnostics(hass: HomeAssistant, entry: HeatMan
                 "override_restore": rt.override_restore,
                 "climate_states": {c: _state(c) for c in room.climates},
                 "window_states": {w: (st.state if (st := hass.states.get(w)) else None) for w in room.windows},
+                "sensor_states": {
+                    e: (
+                        {"state": st.state, "last_reported": getattr(st, "last_reported", st.last_updated).isoformat()}
+                        if (st := hass.states.get(e))
+                        else None
+                    )
+                    for e in room.sensors
+                },
+                "offsets": rt.offsets,
+                "external_sent": {k: [v, t.isoformat()] for k, (v, t) in rt.external_sent.items()},
             }
         )
 

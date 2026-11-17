@@ -1,6 +1,6 @@
 /* HeatManager card – weekly heating profiles, room assignment, pause and window state.
  * Served and auto-loaded by the HeatManager integration. */
-const VERSION = "0.7.0";
+const VERSION = "0.8.0";
 const DAYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];
 const PALETTE = ["#f4a340", "#7e8ef1", "#3fb8c9", "#8bc34a", "#e57373", "#ba68c8", "#4db6ac", "#ffb74d"];
 const ICONS = ["mdi:radiator", "mdi:sofa", "mdi:bed", "mdi:teddy-bear", "mdi:shower", "mdi:desk", "mdi:silverware-fork-knife", "mdi:account-group", "mdi:dumbbell", "mdi:home-export-outline", "mdi:snowflake", "mdi:fire"];
@@ -19,7 +19,7 @@ const I18N = {
     hint: "Im Raster ziehen = neuer Zeitblock · Block antippen = bearbeiten · Ränder ziehen = Zeit ändern",
     hintTouch: "Wischen = scrollen · Antippen = bearbeiten · Gedrückt halten und ziehen = Block anlegen oder verschieben",
     unsaved: "Ungespeicherte Änderungen am Profil „{p}“", discard: "Verwerfen", save: "Speichern",
-    rooms: "Räume & Profile", unreachable: "nicht erreichbar", windowOpen: "Fenster offen", next: "ab {t} → {v}",
+    rooms: "Räume & Profile", unreachable: "nicht erreichbar", windowOpen: "Fenster offen", tooWarm: "zu warm", next: "ab {t} → {v}",
     legend: "<b>Frostschutz</b> = {f} °C · <b>Manuell</b> = Raum wird nicht gesteuert · <b>Fenster offen</b> (ab {d} s) = {f} °C, danach zurück",
     frost: "Frostschutz", manual: "Manuell",
     block: "Zeitblock", from: "Von", to: "Bis", alsoFor: "Auch für diese Tage übernehmen:", monFri: "Mo–Fr", weekend: "Sa–So", all: "Alle",
@@ -53,7 +53,7 @@ const I18N = {
     hint: "Drag in the grid = new block · tap a block = edit · drag edges = change time",
     hintTouch: "Swipe = scroll · tap = edit · press and hold, then drag = create or move a block",
     unsaved: "Unsaved changes to profile “{p}”", discard: "Discard", save: "Save",
-    rooms: "Rooms & profiles", unreachable: "unreachable", windowOpen: "Window open", next: "from {t} → {v}",
+    rooms: "Rooms & profiles", unreachable: "unreachable", windowOpen: "Window open", tooWarm: "too warm", next: "from {t} → {v}",
     legend: "<b>Frost protection</b> = {f} °C · <b>Manual</b> = room not controlled · <b>Window open</b> (after {d} s) = {f} °C, then back",
     frost: "Frost protection", manual: "Manual",
     block: "Time block", from: "From", to: "To", alsoFor: "Also apply to:", monFri: "Mon–Fri", weekend: "Sat–Sun", all: "All",
@@ -286,7 +286,9 @@ class HeatManagerCard extends HTMLElement {
     const options = [...this._profiles().map((q) => [q.id, q.name]), ["frost", this._t("frost")], ["manual", this._t("manual")]];
     const rooms = data.rooms.length ? data.rooms.map((r) => {
       const cl = h.states[r.climates[0]];
-      const cur = cl ? cl.attributes.current_temperature : null, tgt = cl ? cl.attributes.temperature : null;
+      // room sensors when configured, else the thermostat's own reading; target as planned (thermostats may get a compensated value)
+      const cur = r.room_temp_source === "sensors" ? r.room_temp : (cl ? cl.attributes.current_temperature : null);
+      const tgt = r.target != null ? r.target : (cl ? cl.attributes.temperature : null);
       const unav = !cl || cl.state === "unavailable";
       const win = r.windows.some((wid) => h.states[wid] && h.states[wid].state === "on");
       const next = r.override
@@ -297,7 +299,7 @@ class HeatManagerCard extends HTMLElement {
         const n = r.climates.length > 1 ? ((st && st.attributes.friendly_name) || pr.entity_id) : "Thermostat";
         return `<small class="prob" title="${this._t("probHint")}"><ha-icon icon="mdi:alert-circle"></ha-icon>${esc(this._t(pr.kind === "unavailable" ? "probUnavailable" : "probNotAccepting", { n }))}</small>`;
       }).join("");
-      const flags = `${unav ? `<small class="warn"><ha-icon icon="mdi:wifi-off"></ha-icon>${this._t("unreachable")}</small>` : ""}${win ? `<small class="win"><ha-icon icon="mdi:window-open-variant"></ha-icon>${this._t("windowOpen")}</small>` : ""}${probs}${next}`;
+      const flags = `${unav ? `<small class="warn"><ha-icon icon="mdi:wifi-off"></ha-icon>${this._t("unreachable")}</small>` : ""}${win ? `<small class="win"><ha-icon icon="mdi:window-open-variant"></ha-icon>${this._t("windowOpen")}</small>` : ""}${r.too_warm ? `<small class="win"><ha-icon icon="mdi:thermometer-alert"></ha-icon>${this._t("tooWarm")}</small>` : ""}${probs}${next}`;
       return `<div class="room ${win ? "open" : ""} ${probs ? "problem" : ""}" style="--pc:${this._pcolor(r.profile)}">
         <div class="rtop">
           <button class="rname" data-more="${esc(r.climates[0])}" title="${esc(r.name)}">${esc(r.name)}</button>

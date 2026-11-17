@@ -7,7 +7,7 @@ import uuid
 
 from homeassistant.config_entries import ConfigEntry, ConfigFlow, ConfigFlowResult, OptionsFlow
 from homeassistant.core import callback
-from homeassistant.helpers import selector
+from homeassistant.helpers import entity_registry as er, selector
 import voluptuous as vol
 
 from .const import (
@@ -15,20 +15,31 @@ from .const import (
     CONF_AWAY_DELAY,
     CONF_AWAY_TEMP,
     CONF_CLIMATES,
+    CONF_CONTROL,
+    CONF_EXTERNAL,
     CONF_FROST_TEMP,
+    CONF_MAX_AGE,
     CONF_PRESENCE,
+    CONF_PRIMARY,
     CONF_ROOM_ID,
     CONF_ROOM_NAME,
     CONF_ROOMS,
+    CONF_SENSORS,
+    CONF_TEMP_METHOD,
+    CONF_UPPER_LIMIT,
+    CONF_WEIGHTS,
     CONF_WINDOW_DELAY,
+    CONF_WINDOW_NEAR,
     CONF_WINDOWS,
     DEFAULT_AWAY_DELAY,
     DEFAULT_AWAY_TEMP,
     DEFAULT_FROST_TEMP,
+    DEFAULT_MAX_AGE,
     DEFAULT_WINDOW_DELAY,
     DOMAIN,
     NAME,
 )
+from .roomtemp import CONTROL_EXTERNAL, CONTROL_THERMOSTAT, CONTROLS, METHOD_MEAN, METHODS
 
 CONF_ROOM = "room"
 
@@ -60,10 +71,77 @@ def _room_schema(room: dict[str, Any] | None = None) -> vol.Schema:
         vol.Optional(CONF_WINDOWS, default=room.get(CONF_WINDOWS, [])): selector.EntitySelector(
             selector.EntitySelectorConfig(domain="binary_sensor", multiple=True)
         ),
+        vol.Optional(CONF_SENSORS, default=room.get(CONF_SENSORS, [])): selector.EntitySelector(
+            selector.EntitySelectorConfig(domain="sensor", device_class="temperature", multiple=True)
+        ),
     }
     area_key = vol.Optional(CONF_AREA, description={"suggested_value": room.get(CONF_AREA)})
     schema[area_key] = selector.AreaSelector()
     return vol.Schema(schema)
+
+
+def _box(low: float, high: float, step: float, unit: str) -> selector.NumberSelector:
+    return selector.NumberSelector(
+        selector.NumberSelectorConfig(
+            min=low, max=high, step=step, unit_of_measurement=unit, mode=selector.NumberSelectorMode.BOX
+        )
+    )
+
+
+def _temperature_schema(hass: Any, room: dict[str, Any]) -> vol.Schema:
+    """How the room temperature is formed and how the thermostats use it."""
+    sensors: list[str] = room.get(CONF_SENSORS) or []
+
+    def _label(entity_id: str) -> str:
+        st = hass.states.get(entity_id)
+        return f"{st.name} ({entity_id})" if st else entity_id
+
+    sensor_options = [selector.SelectOptionDict(value=e, label=_label(e)) for e in sensors]
+    schema: dict[Any, Any] = {
+        vol.Required(CONF_TEMP_METHOD, default=room.get(CONF_TEMP_METHOD) or METHOD_MEAN): selector.SelectSelector(
+            selector.SelectSelectorConfig(
+                options=list(METHODS), translation_key="temp_method", mode=selector.SelectSelectorMode.DROPDOWN
+            )
+        ),
+    }
+    if sensor_options:
+        primary = room.get(CONF_PRIMARY) if room.get(CONF_PRIMARY) in sensors else None
+        schema[vol.Optional(CONF_PRIMARY, description={"suggested_value": primary})] = selector.SelectSelector(
+            selector.SelectSelectorConfig(options=sensor_options, mode=selector.SelectSelectorMode.DROPDOWN)
+        )
+        near = [e for e in room.get(CONF_WINDOW_NEAR) or [] if e in sensors]
+        schema[vol.Optional(CONF_WINDOW_NEAR, default=near)] = selector.SelectSelector(
+            selector.SelectSelectorConfig(options=sensor_options, multiple=True)
+        )
+    schema[vol.Required(CONF_MAX_AGE, default=room.get(CONF_MAX_AGE) or DEFAULT_MAX_AGE)] = _box(5, 1440, 5, "min")
+    schema[vol.Required(CONF_UPPER_LIMIT, default=room.get(CONF_UPPER_LIMIT) or 0)] = _box(0, 5, 0.5, "K")
+    schema[vol.Required(CONF_CONTROL, default=room.get(CONF_CONTROL) or CONTROL_THERMOSTAT)] = selector.SelectSelector(
+        selector.SelectSelectorConfig(
+            options=list(CONTROLS), translation_key="control", mode=selector.SelectSelectorMode.LIST
+        )
+    )
+    if len(sensors) > 1:
+        weights = room.get(CONF_WEIGHTS) or {}
+        for entity_id in sensors:
+            schema[vol.Required(entity_id, default=float(weights.get(entity_id, 1)))] = _box(0, 10, 0.5, "×")
+    return vol.Schema(schema)
+
+
+def _suggest_external(hass: Any, climate: str) -> str | None:
+    """Find a number entity on the thermostat's device that takes an external temperature."""
+    registry = er.async_get(hass)
+    entry = registry.async_get(climate)
+    if entry is None or entry.device_id is None:
+        return None
+    for candidate in er.async_entries_for_device(registry, entry.device_id):
+        if candidate.domain != "number":
+            continue
+        text = " ".join(
+            str(x).lower() for x in (candidate.entity_id, candidate.original_name, candidate.translation_key) if x
+        )
+        if "external" in text and "temp" in text:
+            return candidate.entity_id
+    return None
 
 
 class HeatManagerConfigFlow(ConfigFlow, domain=DOMAIN):
@@ -99,6 +177,8 @@ class HeatManagerOptionsFlow(OptionsFlow):
 
     def __init__(self) -> None:
         self._room_id: str | None = None
+        # room being added or edited, saved after its last step
+        self._pending: dict[str, Any] = {}
 
     @property
     def _rooms(self) -> list[dict[str, Any]]:
@@ -123,8 +203,57 @@ class HeatManagerOptionsFlow(OptionsFlow):
             elif any(r[CONF_ROOM_NAME].casefold() == room[CONF_ROOM_NAME].casefold() for r in self._rooms):
                 errors[CONF_ROOM_NAME] = "name_exists"
             else:
-                return self._save(**{CONF_ROOMS: [*self._rooms, room]})
+                self._pending = room
+                return await self.async_step_room_temperature()
         return self.async_show_form(step_id="add_room", data_schema=_room_schema(user_input), errors=errors)
+
+    async def async_step_room_temperature(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        room = self._pending
+        if user_input is not None:
+            sensors = room.get(CONF_SENSORS) or []
+            room[CONF_TEMP_METHOD] = user_input.get(CONF_TEMP_METHOD) or METHOD_MEAN
+            room[CONF_PRIMARY] = user_input.get(CONF_PRIMARY) if user_input.get(CONF_PRIMARY) in sensors else None
+            room[CONF_WINDOW_NEAR] = [e for e in user_input.get(CONF_WINDOW_NEAR) or [] if e in sensors]
+            room[CONF_MAX_AGE] = int(user_input.get(CONF_MAX_AGE) or DEFAULT_MAX_AGE)
+            room[CONF_UPPER_LIMIT] = float(user_input.get(CONF_UPPER_LIMIT) or 0) or None
+            room[CONF_CONTROL] = user_input.get(CONF_CONTROL) or CONTROL_THERMOSTAT
+            room[CONF_WEIGHTS] = {e: float(user_input[e]) for e in sensors if len(sensors) > 1 and e in user_input}
+            if room[CONF_CONTROL] == CONTROL_EXTERNAL:
+                return await self.async_step_room_external()
+            room[CONF_EXTERNAL] = {}
+            return self._store_room(room)
+        return self.async_show_form(
+            step_id="room_temperature",
+            data_schema=_temperature_schema(self.hass, room),
+            description_placeholders={"room": room[CONF_ROOM_NAME]},
+        )
+
+    async def async_step_room_external(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        room = self._pending
+        climates = room[CONF_CLIMATES]
+        if user_input is not None:
+            room[CONF_EXTERNAL] = {c: user_input[c] for c in climates if user_input.get(c)}
+            return self._store_room(room)
+        current = room.get(CONF_EXTERNAL) or {}
+        schema = {
+            vol.Optional(c, description={"suggested_value": current.get(c) or _suggest_external(self.hass, c)}): (
+                selector.EntitySelector(selector.EntitySelectorConfig(domain="number"))
+            )
+            for c in climates
+        }
+        return self.async_show_form(
+            step_id="room_external",
+            data_schema=vol.Schema(schema),
+            description_placeholders={"room": room[CONF_ROOM_NAME]},
+        )
+
+    def _store_room(self, room: dict[str, Any]) -> ConfigFlowResult:
+        rooms = self._rooms
+        if any(r[CONF_ROOM_ID] == room[CONF_ROOM_ID] for r in rooms):
+            rooms = [room if r[CONF_ROOM_ID] == room[CONF_ROOM_ID] else r for r in rooms]
+        else:
+            rooms.append(room)
+        return self._save(**{CONF_ROOMS: rooms})
 
     def _room_choices(self) -> selector.SelectSelector:
         return selector.SelectSelector(
@@ -155,8 +284,9 @@ class HeatManagerOptionsFlow(OptionsFlow):
             ):
                 errors[CONF_ROOM_NAME] = "name_exists"
             else:
-                rooms = [room if r[CONF_ROOM_ID] == room[CONF_ROOM_ID] else r for r in self._rooms]
-                return self._save(**{CONF_ROOMS: rooms})
+                # keep the temperature settings for the next step
+                self._pending = {**current, **room}
+                return await self.async_step_room_temperature()
         return self.async_show_form(
             step_id="edit_room_details",
             data_schema=_room_schema(user_input or current),
@@ -236,5 +366,6 @@ class HeatManagerOptionsFlow(OptionsFlow):
             CONF_ROOM_NAME: str(user_input[CONF_ROOM_NAME]).strip(),
             CONF_CLIMATES: list(user_input.get(CONF_CLIMATES) or []),
             CONF_WINDOWS: list(user_input.get(CONF_WINDOWS) or []),
+            CONF_SENSORS: list(user_input.get(CONF_SENSORS) or []),
             CONF_AREA: user_input.get(CONF_AREA) or None,
         }
