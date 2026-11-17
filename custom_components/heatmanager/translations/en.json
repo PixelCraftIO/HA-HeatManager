@@ -243,6 +243,10 @@
       "title": "{thermostat} has been unavailable for over an hour",
       "description": "**{thermostat}** (`{entity_id}`, room {room}) has been unavailable for more than an hour, so HeatManager cannot control it.\n\nCheck batteries and the radio connection. The warning disappears as soon as the thermostat is back."
     },
+    "thermostat_not_responding": {
+      "title": "{thermostat} does not respond",
+      "description": "HeatManager sent **{thermostat}** (`{entity_id}`, room {room}) {temperature} °C four times over about 13 minutes, but the device has not reported anything since. Home Assistant may still show its last known values.\n\nThe device most likely lost its radio connection or hangs: check batteries and range (e.g. the Zigbee/Thread map), or take the batteries out briefly. Tip for Zigbee2MQTT: enable *availability* so such devices show up as unavailable. The warning disappears as soon as the thermostat takes a setpoint again."
+    },
     "sensors_unavailable": {
       "title": "No temperature sensor of {room} has reported for over an hour",
       "description": "None of the temperature sensors of room **{room}** ({sensors}) has delivered a valid value for more than an hour. HeatManager uses the thermostats' own readings meanwhile.\n\nCheck batteries and the radio connection of the sensors. The warning disappears as soon as one of them reports again."

@@ -452,8 +452,9 @@ async def test_thermostat_problem_creates_repair_issue(
     manager.set_assignment("r1", pid)
     await hass.async_block_till_done()
     registry = ir.async_get(hass)
-    for seconds in (61, 121, 301, 301):  # thermostat stays at 18 °C
+    for seconds in (61, 121, 301, 301):  # thermostat answers, but stays at 18 °C
         freezer.tick(timedelta(seconds=seconds))
+        climate_state(hass, 18)
         async_fire_time_changed(hass)
         await hass.async_block_till_done()
     assert len(calls) == 4
@@ -467,6 +468,25 @@ async def test_thermostat_problem_creates_repair_issue(
     await hass.async_block_till_done()
     assert registry.async_get_issue(DOMAIN, f"thermostat_{CLIMATE}") is None
     assert manager.room_info(manager.rooms["r1"])["problems"] == []
+
+
+async def test_silent_thermostat_reported_as_not_responding(
+    hass: HomeAssistant, setup, freezer: FrozenDateTimeFactory
+) -> None:
+    manager, calls, apply, _ = setup
+    pid = manager.save_profile({"name": "Kinder", "base_temp": 17, "week": WEEK_ALL_DAY})
+    manager.set_assignment("r1", pid)
+    await hass.async_block_till_done()
+    for seconds in (61, 121, 301, 301):  # thermostat sends nothing at all
+        freezer.tick(timedelta(seconds=seconds))
+        async_fire_time_changed(hass)
+        await hass.async_block_till_done()
+    issue = ir.async_get(hass).async_get_issue(DOMAIN, f"thermostat_{CLIMATE}")
+    assert issue is not None and issue.translation_key == "thermostat_not_responding"
+    assert manager.room_info(manager.rooms["r1"])["problems"] == [{"entity_id": CLIMATE, "kind": "not_responding"}]
+    apply(calls[-1])  # back online and takes the setpoint
+    await hass.async_block_till_done()
+    assert ir.async_get(hass).async_get_issue(DOMAIN, f"thermostat_{CLIMATE}") is None
 
 
 async def test_long_unavailable_thermostat_reported(hass: HomeAssistant, setup, freezer: FrozenDateTimeFactory) -> None:
