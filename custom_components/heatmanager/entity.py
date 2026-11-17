@@ -39,7 +39,6 @@ class HeatManagerEntity(Entity):
                 manufacturer="PixelCraftIO",
                 model="HeatManager room",
                 suggested_area=room.area_name,
-                via_device=(DOMAIN, entry_id),
                 entry_type=DeviceEntryType.SERVICE,
             )
 
