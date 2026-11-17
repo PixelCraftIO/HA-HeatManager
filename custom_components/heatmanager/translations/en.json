@@ -27,7 +27,8 @@
           "add_room": "Add room",
           "edit_room": "Edit room",
           "remove_room": "Remove rooms",
-          "settings": "Settings"
+          "settings": "Settings",
+          "presence": "Away & presence"
         }
       },
       "add_room": {
@@ -74,6 +75,20 @@
           "frost_temp": "Used while a window is open and for rooms set to frost protection.",
           "window_delay": "How long a window must be open before the heating is lowered."
         }
+      },
+      "presence": {
+        "title": "Away & presence",
+        "description": "Optional. When none of these is at home, rooms with a profile are lowered to the away temperature. Rooms set to Manual stay untouched.",
+        "data": {
+          "presence_entities": "People / presence",
+          "away_temp": "Away temperature",
+          "away_delay": "Delay"
+        },
+        "data_description": {
+          "presence_entities": "Persons, device trackers, groups or binary sensors. Leave empty to turn the feature off.",
+          "away_temp": "Maximum target while nobody is home.",
+          "away_delay": "How long everybody must be gone before lowering."
+        }
       }
     },
     "error": {
@@ -100,7 +115,9 @@
               "window": "Window open",
               "paused": "Paused",
               "manual": "Manual",
-              "override": "Override"
+              "override": "Override",
+              "away": "Nobody home",
+              "vacation": "Vacation"
             }
           }
         }
@@ -166,6 +183,20 @@
           "description": "Name or id of the HeatManager room."
         }
       }
+    },
+    "start_vacation": {
+      "name": "Start vacation",
+      "description": "Frost protection for all rooms with a profile or frost protection until the given moment, then the schedule continues. Manual rooms stay untouched.",
+      "fields": {
+        "until": {
+          "name": "Until",
+          "description": "When you are back."
+        }
+      }
+    },
+    "end_vacation": {
+      "name": "End vacation",
+      "description": "End the vacation mode now."
     }
   },
   "issues": {

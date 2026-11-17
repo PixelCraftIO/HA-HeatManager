@@ -4,7 +4,7 @@ from __future__ import annotations
 
 DOMAIN = "heatmanager"
 NAME = "HeatManager"
-VERSION = "0.3.0"
+VERSION = "0.4.0"
 
 CONF_ROOMS = "rooms"
 CONF_ROOM_ID = "id"
@@ -14,10 +14,15 @@ CONF_WINDOWS = "windows"
 CONF_AREA = "area"
 CONF_FROST_TEMP = "frost_temp"
 CONF_WINDOW_DELAY = "window_delay"
+CONF_PRESENCE = "presence_entities"
+CONF_AWAY_TEMP = "away_temp"
+CONF_AWAY_DELAY = "away_delay"
 
 DEFAULT_FROST_TEMP = 5.0
 DEFAULT_WINDOW_DELAY = 30
 DEFAULT_BASE_TEMP = 17.0
+DEFAULT_AWAY_TEMP = 16.0
+DEFAULT_AWAY_DELAY = 10  # minutes
 
 # Special room assignments besides real profiles
 ASSIGN_FROST = "frost"
@@ -32,6 +37,8 @@ REASON_WINDOW = "window"
 REASON_PAUSED = "paused"
 REASON_MANUAL = "manual"
 REASON_OVERRIDE = "override"
+REASON_AWAY = "away"
+REASON_VACATION = "vacation"
 
 DAYS = ("monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday")
 

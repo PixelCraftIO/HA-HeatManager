@@ -42,3 +42,11 @@ clear_room_override:
       example: "Kinderzimmer"
       selector:
         text:
+start_vacation:
+  fields:
+    until:
+      required: true
+      example: "2026-12-27 16:00:00"
+      selector:
+        datetime:
+end_vacation:

@@ -11,6 +11,8 @@ Weekly heating profiles with a visual 7‑day grid, profiles you assign to rooms
 - **Window open**: after a configurable delay (default 30 s) the room drops to frost protection. When the window closes, the profile takes over again – or, for manual rooms and while paused, the previous setpoint is restored.
 - **Override a room**: from the card (thermometer button on the room) or the `heatmanager.override_room` action hold one room at e.g. 22 °C for 1/2/4 h or until its next change in the profile – then it returns to its plan by itself.
 - **Pause**: for 2 h, 8 h, 24 h, a week or until a date – thermostats keep their current temperature, the schedule resumes automatically.
+- **Away**: optionally link persons/device trackers (Configure → *Away & presence*). When nobody has been home for a while (default 10 min), rooms with a profile are lowered to an away temperature (default 16 °C) and come back as soon as somebody is home.
+- **Vacation**: frost protection in all scheduled rooms until a date (card button *Vacation…* or `heatmanager.start_vacation`), then the schedule continues. Unlike the pause, which only holds the current temperatures.
 - **Manual changes are respected** until the next change in the profile.
 - **Reliable sending**: if a thermostat does not confirm a new setpoint, it is sent again (after 1, 2 and 5 minutes); thermostats that come back online get the current target.
 - **Thermostat problems are reported**: if a thermostat still ignores its setpoint after the retries, or is unavailable for over an hour, the card marks the room and Home Assistant shows a repair notice (Settings → Repairs). Both disappear once the device works again.
@@ -60,6 +62,8 @@ Editing profiles requires an administrator account; everybody can assign profile
 | `heatmanager.resume` | – |
 | `heatmanager.override_room` | `room` (name or id), `temperature`, and `duration`, `until` or `until_next_change: true`. Without an end: until cleared |
 | `heatmanager.clear_room_override` | `room` |
+| `heatmanager.start_vacation` | `until` (datetime) |
+| `heatmanager.end_vacation` | – |
 
 Example – pause while everybody is away:
 
@@ -75,10 +79,11 @@ For each room, in this order:
 
 1. A window has been open longer than the delay → frost protection temperature
 2. Room overridden → the override temperature until its end
-3. Schedule paused → leave the thermostat alone
-4. Room set to *Frost protection* → frost protection temperature
-5. Room set to *Manual* → leave the thermostat alone
-6. Otherwise the profile: temperature of the active time block, else the base temperature
+3. Vacation (rooms with a profile or frost protection) → frost protection temperature
+4. Schedule paused → leave the thermostat alone
+5. Room set to *Frost protection* → frost protection temperature
+6. Room set to *Manual* → leave the thermostat alone
+7. Otherwise the profile: temperature of the active time block, else the base temperature – at most the away temperature while nobody is home
 
 HeatManager only sends when the target changes (block start/end, profile or assignment change, window, end of pause). Changes made on the thermostat itself therefore last until the next change in the profile.
 
@@ -92,7 +97,7 @@ Put thermostats into a manual/heat mode so their internal week program does not 
 
 HeatManager steuert Thermostate über **Heizprofile mit Wochenraster**. Zeitblöcke werden mit der Maus ins Raster gezogen (auf dem Tablet: kurz gedrückt halten, dann ziehen; normales Wischen scrollt), jeder Block bekommt eine eigene Temperatur, außerhalb gilt die Grundtemperatur. Räume (ein oder mehrere Thermostate, optional Fensterkontakte) bekommen ein Profil, *Frostschutz* oder *Manuell*.
 
-**Fenster offen** → nach 30 s Frostschutz, beim Schließen zurück zum Profil bzw. zur vorherigen Temperatur. **Raum übersteuern**: über das Thermometer-Symbol am Raum z. B. 2 Std. auf 22 °C oder bis zum nächsten Wechsel, danach zurück zum Plan. **Pause** für Stunden, eine Woche oder bis zu einem Datum. Manuelle Änderungen am Thermostat gelten bis zum nächsten Wechsel im Profil. Nimmt ein Thermostat Sollwerte dauerhaft nicht an oder ist es über eine Stunde nicht erreichbar, zeigt die Karte das am Raum und Home Assistant erzeugt einen Reparaturhinweis.
+**Fenster offen** → nach 30 s Frostschutz, beim Schließen zurück zum Profil bzw. zur vorherigen Temperatur. **Raum übersteuern**: über das Thermometer-Symbol am Raum z. B. 2 Std. auf 22 °C oder bis zum nächsten Wechsel, danach zurück zum Plan. **Abwesenheit**: optional Personen verknüpfen (Konfigurieren › Abwesenheit); ist niemand zu Hause, gilt eine Absenktemperatur. **Urlaub**: Frostschutz bis zu einem Datum, danach läuft der Plan weiter. **Pause** für Stunden, eine Woche oder bis zu einem Datum. Manuelle Änderungen am Thermostat gelten bis zum nächsten Wechsel im Profil. Nimmt ein Thermostat Sollwerte dauerhaft nicht an oder ist es über eine Stunde nicht erreichbar, zeigt die Karte das am Raum und Home Assistant erzeugt einen Reparaturhinweis.
 
 Einrichtung: Integration hinzufügen → **Konfigurieren** → Räume anlegen → Karte `type: custom:heatmanager-card` aufs Dashboard (am besten in eine Ansicht vom Typ *Panel*).
 

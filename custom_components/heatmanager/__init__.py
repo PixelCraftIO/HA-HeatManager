@@ -31,6 +31,8 @@ SERVICE_PAUSE = "pause"
 SERVICE_RESUME = "resume"
 SERVICE_OVERRIDE = "override_room"
 SERVICE_CLEAR_OVERRIDE = "clear_room_override"
+SERVICE_START_VACATION = "start_vacation"
+SERVICE_END_VACATION = "end_vacation"
 
 PAUSE_SCHEMA = vol.Schema(
     {
@@ -49,6 +51,7 @@ OVERRIDE_SCHEMA = vol.Schema(
     }
 )
 CLEAR_OVERRIDE_SCHEMA = vol.Schema({vol.Required("room"): cv.string})
+VACATION_SCHEMA = vol.Schema({vol.Required("until"): cv.datetime})
 
 type HeatManagerConfigEntry = ConfigEntry[HeatManager]
 
@@ -96,6 +99,19 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         manager = _manager(hass)
         manager.clear_override(_room_id(manager, call.data["room"]))
 
+    async def _start_vacation(call: ServiceCall) -> None:
+        moment = call.data["until"]
+        until = dt_util.as_local(moment if moment.tzinfo else moment.replace(tzinfo=dt_util.get_default_time_zone()))
+        try:
+            _manager(hass).set_vacation(until)
+        except ValueError as err:
+            raise ServiceValidationError(str(err)) from err
+
+    async def _end_vacation(call: ServiceCall) -> None:
+        _manager(hass).set_vacation(None)
+
+    hass.services.async_register(DOMAIN, SERVICE_START_VACATION, _start_vacation, schema=VACATION_SCHEMA)
+    hass.services.async_register(DOMAIN, SERVICE_END_VACATION, _end_vacation)
     hass.services.async_register(DOMAIN, SERVICE_PAUSE, _pause, schema=PAUSE_SCHEMA)
     hass.services.async_register(DOMAIN, SERVICE_OVERRIDE, _override, schema=OVERRIDE_SCHEMA)
     hass.services.async_register(DOMAIN, SERVICE_CLEAR_OVERRIDE, _clear_override, schema=CLEAR_OVERRIDE_SCHEMA)

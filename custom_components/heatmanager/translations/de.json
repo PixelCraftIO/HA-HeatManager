@@ -27,7 +27,8 @@
           "add_room": "Raum hinzufügen",
           "edit_room": "Raum bearbeiten",
           "remove_room": "Räume entfernen",
-          "settings": "Einstellungen"
+          "settings": "Einstellungen",
+          "presence": "Abwesenheit"
         }
       },
       "add_room": {
@@ -74,6 +75,20 @@
           "frost_temp": "Gilt bei offenem Fenster und für Räume auf Frostschutz.",
           "window_delay": "So lange muss ein Fenster offen sein, bevor die Heizung abgesenkt wird."
         }
+      },
+      "presence": {
+        "title": "Abwesenheit",
+        "description": "Optional. Ist keiner davon zu Hause, werden Räume mit Profil auf die Absenktemperatur gesenkt. Räume auf Manuell bleiben unberührt.",
+        "data": {
+          "presence_entities": "Personen / Anwesenheit",
+          "away_temp": "Absenktemperatur",
+          "away_delay": "Verzögerung"
+        },
+        "data_description": {
+          "presence_entities": "Personen, Geräte-Tracker, Gruppen oder Binärsensoren. Leer lassen schaltet die Funktion ab.",
+          "away_temp": "Höchste Zieltemperatur, solange niemand zu Hause ist.",
+          "away_delay": "So lange müssen alle weg sein, bevor abgesenkt wird."
+        }
       }
     },
     "error": {
@@ -100,7 +115,9 @@
               "window": "Fenster offen",
               "paused": "Pausiert",
               "manual": "Manuell",
-              "override": "Übersteuert"
+              "override": "Übersteuert",
+              "away": "Niemand zu Hause",
+              "vacation": "Urlaub"
             }
           }
         }
@@ -166,6 +183,20 @@
           "description": "Name oder ID des HeatManager-Raums."
         }
       }
+    },
+    "start_vacation": {
+      "name": "Urlaub starten",
+      "description": "Frostschutz für alle Räume mit Profil oder Frostschutz bis zum angegebenen Zeitpunkt, danach läuft der Heizplan weiter. Räume auf Manuell bleiben unberührt.",
+      "fields": {
+        "until": {
+          "name": "Bis",
+          "description": "Wann ihr zurück seid."
+        }
+      }
+    },
+    "end_vacation": {
+      "name": "Urlaub beenden",
+      "description": "Beendet den Urlaubsmodus sofort."
     }
   },
   "issues": {

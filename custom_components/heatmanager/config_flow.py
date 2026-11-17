@@ -12,13 +12,18 @@ import voluptuous as vol
 
 from .const import (
     CONF_AREA,
+    CONF_AWAY_DELAY,
+    CONF_AWAY_TEMP,
     CONF_CLIMATES,
     CONF_FROST_TEMP,
+    CONF_PRESENCE,
     CONF_ROOM_ID,
     CONF_ROOM_NAME,
     CONF_ROOMS,
     CONF_WINDOW_DELAY,
     CONF_WINDOWS,
+    DEFAULT_AWAY_DELAY,
+    DEFAULT_AWAY_TEMP,
     DEFAULT_FROST_TEMP,
     DEFAULT_WINDOW_DELAY,
     DOMAIN,
@@ -106,7 +111,7 @@ class HeatManagerOptionsFlow(OptionsFlow):
         options = ["add_room"]
         if self._rooms:
             options += ["edit_room", "remove_room"]
-        options.append("settings")
+        options += ["presence", "settings"]
         return self.async_show_menu(step_id="init", menu_options=options)
 
     async def async_step_add_room(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
@@ -188,6 +193,41 @@ class HeatManagerOptionsFlow(OptionsFlow):
                 options.get(CONF_FROST_TEMP, DEFAULT_FROST_TEMP), options.get(CONF_WINDOW_DELAY, DEFAULT_WINDOW_DELAY)
             ),
         )
+
+    async def async_step_presence(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        options = self.config_entry.options
+        if user_input is not None:
+            return self._save(
+                **{
+                    CONF_PRESENCE: list(user_input.get(CONF_PRESENCE) or []),
+                    CONF_AWAY_TEMP: float(user_input[CONF_AWAY_TEMP]),
+                    CONF_AWAY_DELAY: int(user_input[CONF_AWAY_DELAY]),
+                }
+            )
+        schema = vol.Schema(
+            {
+                vol.Optional(CONF_PRESENCE, default=options.get(CONF_PRESENCE, [])): selector.EntitySelector(
+                    selector.EntitySelectorConfig(
+                        domain=["person", "device_tracker", "group", "binary_sensor", "input_boolean"], multiple=True
+                    )
+                ),
+                vol.Required(CONF_AWAY_TEMP, default=options.get(CONF_AWAY_TEMP, DEFAULT_AWAY_TEMP)): (
+                    selector.NumberSelector(
+                        selector.NumberSelectorConfig(
+                            min=5, max=22, step=0.5, unit_of_measurement="°C", mode=selector.NumberSelectorMode.BOX
+                        )
+                    )
+                ),
+                vol.Required(CONF_AWAY_DELAY, default=options.get(CONF_AWAY_DELAY, DEFAULT_AWAY_DELAY)): (
+                    selector.NumberSelector(
+                        selector.NumberSelectorConfig(
+                            min=0, max=240, step=1, unit_of_measurement="min", mode=selector.NumberSelectorMode.BOX
+                        )
+                    )
+                ),
+            }
+        )
+        return self.async_show_form(step_id="presence", data_schema=schema)
 
     @staticmethod
     def _clean_room(user_input: dict[str, Any], room_id: str) -> dict[str, Any]:
