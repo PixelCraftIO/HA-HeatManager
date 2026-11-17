@@ -42,6 +42,8 @@ from .const import (
 from .roomtemp import CONTROL_EXTERNAL, CONTROL_THERMOSTAT, CONTROLS, METHOD_MEAN, METHODS
 
 CONF_ROOM = "room"
+# weight fields are numbered (weight_1 …) so they get proper labels
+MAX_WEIGHTED = 10
 
 
 def _settings_schema(frost: float, delay: int) -> vol.Schema:
@@ -122,9 +124,21 @@ def _temperature_schema(hass: Any, room: dict[str, Any]) -> vol.Schema:
     )
     if len(sensors) > 1:
         weights = room.get(CONF_WEIGHTS) or {}
-        for entity_id in sensors:
-            schema[vol.Required(entity_id, default=float(weights.get(entity_id, 1)))] = _box(0, 10, 0.5, "×")
+        for i, entity_id in enumerate(sensors[:MAX_WEIGHTED], 1):
+            schema[vol.Required(f"weight_{i}", default=float(weights.get(entity_id, 1)))] = _box(0, 10, 0.5, "×")
     return vol.Schema(schema)
+
+
+def _weights_legend(hass: Any, room: dict[str, Any]) -> str:
+    """Which sensor the numbered weight fields belong to."""
+    sensors: list[str] = room.get(CONF_SENSORS) or []
+    if len(sensors) < 2:
+        return ""
+    names = []
+    for i, entity_id in enumerate(sensors[:MAX_WEIGHTED], 1):
+        st = hass.states.get(entity_id)
+        names.append(f"{i} = {st.name if st else entity_id}")
+    return "\n\n" + " · ".join(names)
 
 
 def _suggest_external(hass: Any, climate: str) -> str | None:
@@ -217,7 +231,11 @@ class HeatManagerOptionsFlow(OptionsFlow):
             room[CONF_MAX_AGE] = int(user_input.get(CONF_MAX_AGE) or DEFAULT_MAX_AGE)
             room[CONF_UPPER_LIMIT] = float(user_input.get(CONF_UPPER_LIMIT) or 0) or None
             room[CONF_CONTROL] = user_input.get(CONF_CONTROL) or CONTROL_THERMOSTAT
-            room[CONF_WEIGHTS] = {e: float(user_input[e]) for e in sensors if len(sensors) > 1 and e in user_input}
+            room[CONF_WEIGHTS] = {
+                e: float(user_input[f"weight_{i}"])
+                for i, e in enumerate(sensors[:MAX_WEIGHTED], 1)
+                if len(sensors) > 1 and f"weight_{i}" in user_input
+            }
             if room[CONF_CONTROL] == CONTROL_EXTERNAL:
                 return await self.async_step_room_external()
             room[CONF_EXTERNAL] = {}
@@ -225,26 +243,28 @@ class HeatManagerOptionsFlow(OptionsFlow):
         return self.async_show_form(
             step_id="room_temperature",
             data_schema=_temperature_schema(self.hass, room),
-            description_placeholders={"room": room[CONF_ROOM_NAME]},
+            description_placeholders={"room": room[CONF_ROOM_NAME], "weights": _weights_legend(self.hass, room)},
         )
 
     async def async_step_room_external(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         room = self._pending
         climates = room[CONF_CLIMATES]
+        numbered = list(enumerate(climates[:MAX_WEIGHTED], 1))
         if user_input is not None:
-            room[CONF_EXTERNAL] = {c: user_input[c] for c in climates if user_input.get(c)}
+            room[CONF_EXTERNAL] = {c: user_input[f"input_{i}"] for i, c in numbered if user_input.get(f"input_{i}")}
             return self._store_room(room)
         current = room.get(CONF_EXTERNAL) or {}
         schema = {
-            vol.Optional(c, description={"suggested_value": current.get(c) or _suggest_external(self.hass, c)}): (
-                selector.EntitySelector(selector.EntitySelectorConfig(domain="number"))
-            )
-            for c in climates
+            vol.Optional(
+                f"input_{i}", description={"suggested_value": current.get(c) or _suggest_external(self.hass, c)}
+            ): selector.EntitySelector(selector.EntitySelectorConfig(domain="number"))
+            for i, c in numbered
         }
+        legend = " · ".join(f"{i} = {st.name if (st := self.hass.states.get(c)) else c}" for i, c in numbered)
         return self.async_show_form(
             step_id="room_external",
             data_schema=vol.Schema(schema),
-            description_placeholders={"room": room[CONF_ROOM_NAME]},
+            description_placeholders={"room": room[CONF_ROOM_NAME], "thermostats": legend},
         )
 
     def _store_room(self, room: dict[str, Any]) -> ConfigFlowResult:

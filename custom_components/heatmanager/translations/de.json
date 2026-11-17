@@ -99,14 +99,24 @@
       },
       "room_temperature": {
         "title": "Raumtemperatur von {room}",
-        "description": "Wie HeatManager aus den Sensoren die Ist-Temperatur des Raums bildet und wie die Thermostate sie nutzen. Nicht erreichbare oder zu lange stumme Sensoren werden ignoriert, ohne gültigen Sensor gelten die Messwerte der Thermostate. Bei mehreren Sensoren bekommt jeder unten eine Gewichtung (0 = zählt nicht, nur für die Obergrenze).",
+        "description": "Wie HeatManager aus den Sensoren die Ist-Temperatur des Raums bildet und wie die Thermostate sie nutzen. Nicht erreichbare oder zu lange stumme Sensoren werden ignoriert, ohne gültigen Sensor gelten die Messwerte der Thermostate. Bei mehreren Sensoren bekommt jeder unten eine Gewichtung (0 = zählt nicht, nur für die Obergrenze).{weights}",
         "data": {
           "temp_method": "Berechnung",
           "primary_sensor": "Hauptsensor",
           "window_near_sensors": "Sensoren in Fensternähe",
           "sensor_max_age": "Maximales Alter",
           "upper_limit": "Obergrenze",
-          "control": "Regelart"
+          "control": "Regelart",
+          "weight_1": "Gewichtung Sensor 1",
+          "weight_2": "Gewichtung Sensor 2",
+          "weight_3": "Gewichtung Sensor 3",
+          "weight_4": "Gewichtung Sensor 4",
+          "weight_5": "Gewichtung Sensor 5",
+          "weight_6": "Gewichtung Sensor 6",
+          "weight_7": "Gewichtung Sensor 7",
+          "weight_8": "Gewichtung Sensor 8",
+          "weight_9": "Gewichtung Sensor 9",
+          "weight_10": "Gewichtung Sensor 10"
         },
         "data_description": {
           "temp_method": "Mittelwert (gewichtet), niedrigster, höchster Wert oder ein Hauptsensor mit den anderen als Ersatz.",
@@ -119,7 +129,19 @@
       },
       "room_external": {
         "title": "Externe Temperatureingänge in {room}",
-        "description": "Je Thermostat die Zahl-Entität, die eine externe Raumtemperatur annimmt (oft „External temperature“ genannt). HeatManager schickt die Raumtemperatur dorthin, mindestens alle 15 Minuten. Thermostate ohne solche Entität werden stattdessen ausgeglichen."
+        "description": "Je Thermostat die Zahl-Entität, die eine externe Raumtemperatur annimmt (oft „External temperature“ genannt). HeatManager schickt die Raumtemperatur dorthin, mindestens alle 15 Minuten. Thermostate ohne solche Entität werden stattdessen ausgeglichen.\n\n{thermostats}",
+        "data": {
+          "input_1": "Eingang Thermostat 1",
+          "input_2": "Eingang Thermostat 2",
+          "input_3": "Eingang Thermostat 3",
+          "input_4": "Eingang Thermostat 4",
+          "input_5": "Eingang Thermostat 5",
+          "input_6": "Eingang Thermostat 6",
+          "input_7": "Eingang Thermostat 7",
+          "input_8": "Eingang Thermostat 8",
+          "input_9": "Eingang Thermostat 9",
+          "input_10": "Eingang Thermostat 10"
+        }
       }
     },
     "error": {

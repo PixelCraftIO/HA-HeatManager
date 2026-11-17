@@ -1,6 +1,6 @@
 /* HeatManager card – weekly heating profiles, room assignment, pause and window state.
  * Served and auto-loaded by the HeatManager integration. */
-const VERSION = "0.8.0";
+const VERSION = "0.8.1";
 const DAYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];
 const PALETTE = ["#f4a340", "#7e8ef1", "#3fb8c9", "#8bc34a", "#e57373", "#ba68c8", "#4db6ac", "#ffb74d"];
 const ICONS = ["mdi:radiator", "mdi:sofa", "mdi:bed", "mdi:teddy-bear", "mdi:shower", "mdi:desk", "mdi:silverware-fork-knife", "mdi:account-group", "mdi:dumbbell", "mdi:home-export-outline", "mdi:snowflake", "mdi:fire"];
@@ -33,7 +33,7 @@ const I18N = {
     noRooms: "Noch keine Räume. Lege sie unter Einstellungen › Geräte & Dienste › HeatManager › Konfigurieren an.",
     noProfiles: "Noch keine Heizprofile – lege mit „Neues Profil“ das erste an.",
     adminOnly: "Profile bearbeiten können nur Administratoren.",
-    showWeek: "Wochenplan bearbeiten", hideWeek: "Wochenplan einklappen", expand: "Aufklappen", collapse: "Einklappen",
+    hideWeek: "Einklappen", openProfile: "Heizprofil öffnen", expand: "Aufklappen", collapse: "Einklappen",
     usedBy: "genutzt von {r}", usedByNone: "von keinem Raum genutzt",
     today: "Heute", todayOff: "nicht gesteuert", editProfile: "Bearbeiten", editTitle: "Profil bearbeiten", color: "Farbe",
     vacation: "Urlaubsmodus", vacationSub: "bis {t} · Frostschutz in allen Räumen mit Plan", vacationBtn: "Urlaub…", vacationTitle: "Urlaub bis", vacationHint: "Bis dahin Frostschutz in allen Räumen mit Profil oder Frostschutz, danach läuft der Heizplan weiter. Räume auf Manuell bleiben unberührt.", vacationStart: "Urlaub starten", vacationEnd: "Urlaub beenden",
@@ -67,7 +67,7 @@ const I18N = {
     noRooms: "No rooms yet. Add them under Settings › Devices & services › HeatManager › Configure.",
     noProfiles: "No heating profiles yet – create the first one with “New profile”.",
     adminOnly: "Only administrators can edit profiles.",
-    showWeek: "Edit week plan", hideWeek: "Collapse week plan", expand: "Expand", collapse: "Collapse",
+    hideWeek: "Collapse", openProfile: "Open heating profile", expand: "Expand", collapse: "Collapse",
     usedBy: "used by {r}", usedByNone: "not used by any room",
     today: "Today", todayOff: "not controlled", editProfile: "Edit", editTitle: "Edit profile", color: "Colour",
     vacation: "Vacation", vacationSub: "until {t} · frost protection in all scheduled rooms", vacationBtn: "Vacation…", vacationTitle: "Vacation until", vacationHint: "Until then frost protection in all rooms with a profile or frost protection, then the schedule continues. Manual rooms stay untouched.", vacationStart: "Start vacation", vacationEnd: "End vacation",
@@ -118,7 +118,8 @@ class HeatManagerCard extends HTMLElement {
     this._unsub = this._hass.connection
       .subscribeMessage((data) => {
         this._data = data; this._err = null;
-        if (!this._sel || !data.profiles.find((p) => p.id === this._sel)) this._sel = data.profiles[0] && data.profiles[0].id;
+        // nothing is opened by default: only the profile chips show until one is chosen
+        if (this._sel && !data.profiles.find((p) => p.id === this._sel)) this._sel = null;
         this._lastSig = this._sig();
         if (this._drag || this._dlg) this._pending = true; else this._render();
       }, { type: "heatmanager/subscribe" })
@@ -157,6 +158,16 @@ class HeatManagerCard extends HTMLElement {
   }
 
   _profiles() { return this._data?.profiles || []; }
+  _openProfile(id) {
+    // from "Today": show this profile's week plan, unfold the section and scroll to it
+    if (!this._profiles().some((p) => p.id === id)) return;
+    this._sel = id;
+    const f = this._folded();
+    if (f.profiles) { f.profiles = false; try { localStorage.setItem("heatmanager-card:folded", JSON.stringify(f)); } catch (_) { /* private mode */ } }
+    this._render();
+    const el = this.shadowRoot && this.shadowRoot.querySelector(".pcard");
+    if (el && el.scrollIntoView) el.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
   _cur() { return this._profiles().find((p) => p.id === this._sel); }
   _pcolor(id) {
     const ps = this._profiles(), i = ps.findIndex((p) => p.id === id);
@@ -253,7 +264,6 @@ class HeatManagerCard extends HTMLElement {
           <div class="track ${admin ? "edit" : ""}" data-day="${d}" style="height:${24 * hh}px;background-size:100% ${hh}px">${blocks}<div class="now" data-nowday="${d}"></div></div></div>`;
       }).join("");
       const used = data.rooms.filter((r) => r.profile === p.id).map((r) => r.name);
-      const weekOpen = !!this._weekOpen || !!this._drafts[p.id];
       profHtml = `
         <div class="pcard" style="--pc:${this._pcolor(p.id)}">
           <div class="phead">
@@ -268,18 +278,15 @@ class HeatManagerCard extends HTMLElement {
                 <b style="color:${tempColor(p.base_temp)}">${this._fmtT(p.base_temp)} °C</b>
                 ${admin ? `<button class="ico" data-base="0.5"><ha-icon icon="mdi:plus"></ha-icon></button>` : ""}</div></div>
           </div>
-          ${weekOpen ? `
           <div class="hint"><ha-icon icon="mdi:gesture-swipe-vertical"></ha-icon>${admin ? this._t(window.matchMedia && matchMedia("(pointer: coarse)").matches ? "hintTouch" : "hint") : this._t("adminOnly")}</div>
           <div class="gridwrap"><div class="grid">
             <div class="axis"><div class="dhead"></div><div class="axtrack" style="height:${24 * hh}px">${axis}</div></div>${cols}
           </div></div>
-          <button class="btn small weektoggle" data-act="week-close"><ha-icon icon="mdi:chevron-up"></ha-icon>${this._t("hideWeek")}</button>` : `
-          <button class="mini" data-act="week-open" title="${this._t("showWeek")}">${DAYS.map((d, di) => `<div class="mrow"><span>${dn[di]}</span><div class="mbar" style="background:${tempColor(p.base_temp)}55">${w[d].map((b) => `<i style="left:${b.from / 14.4}%;width:${(b.to - b.from) / 14.4}%;background:${tempColor(b.t)}"></i>`).join("")}</div></div>`).join("")}</button>
-          <button class="btn small weektoggle" data-act="week-open"><ha-icon icon="mdi:calendar-edit"></ha-icon>${this._t("showWeek")}</button>`}
+          ${this._drafts[p.id] ? "" : `<button class="btn small weektoggle" data-act="week-close"><ha-icon icon="mdi:chevron-up"></ha-icon>${this._t("hideWeek")}</button>`}
           ${this._drafts[p.id] ? `<div class="savebar"><ha-icon icon="mdi:content-save-alert"></ha-icon><span>${this._t("unsaved", { p: esc(p.name) })}</span>
             <button class="btn" data-act="discard">${this._t("discard")}</button><button class="btn primary" data-act="save">${this._t("save")}</button></div>` : ""}
         </div>`;
-    } else {
+    } else if (!this._profiles().length) {
       profHtml = `<div class="empty">${this._t("noProfiles")}</div>`;
     }
 
@@ -315,7 +322,7 @@ class HeatManagerCard extends HTMLElement {
 
     let todayHtml = "";
     if (c.show_today !== false && data.rooms.some((r) => r.today)) {
-      const rowsT = data.rooms.map((r) => `<div class="trow"><span class="tname">${esc(r.name)}</span><div class="tbar">${(r.today || []).map(([f, t, v, why]) => {
+      const rowsT = data.rooms.map((r) => `<div class="trow ${this._profiles().some((q) => q.id === r.profile) ? "link" : ""}" ${this._profiles().some((q) => q.id === r.profile) ? `data-openprofile="${esc(r.profile)}" title="${esc(this._t("openProfile"))}"` : ""}><span class="tname">${esc(r.name)}</span><div class="tbar">${(r.today || []).map(([f, t, v, why]) => {
         const w = (t - f) / 14.4, label = v != null && w > 6 ? `${this._fmtT(v)}°` : "";
         const tip = `${hm(f)}–${hm(t)} · ${v != null ? this._fmtT(v) + " °C" : this._t("todayOff")}`;
         return `<div class="tseg ${v == null ? "off" : ""} ${why === "override" ? "ovr" : ""}" style="left:${f / 14.4}%;width:${w}%;${v != null ? `background:${tempColor(v)}` : ""}" title="${esc(tip)}">${label}</div>`;
@@ -453,7 +460,7 @@ class HeatManagerCard extends HTMLElement {
       d.busy = true; d.name = name; d.template = tplId; this._render();
       try {
         const res = await this._ws({ type: "heatmanager/profile/save", name, icon: d.icon, color: d.color, base_temp: d.t, week: tpl ? tpl.week : {} });
-        this._sel = res.profile_id; this._weekOpen = true; this._dlg = null; this._toast(this._t("created", { p: name })); this._render();
+        this._sel = res.profile_id; this._dlg = null; this._toast(this._t("created", { p: name })); this._render();
       } catch (e) { d.busy = false; this._render(); }
       return;
     }
@@ -503,8 +510,7 @@ class HeatManagerCard extends HTMLElement {
       const a = b.dataset.act;
       if (a === "resume") this._ws({ type: "heatmanager/resume" }).catch(() => {});
       if (a === "save") this._save();
-      if (a === "week-open") { this._weekOpen = true; this._render(); }
-      if (a === "week-close") { this._weekOpen = false; this._render(); }
+      if (a === "week-close") { this._sel = null; this._render(); }
       if (a === "discard") { delete this._drafts[this._sel]; this._render(); }
       if (a === "new-profile") { this._dlg = { kind: "newprofile", name: "", icon: ICONS[0], color: PALETTE[this._profiles().length % PALETTE.length], template: "", t: 17 }; this._render(); }
       if (a === "edit-profile") {
@@ -526,10 +532,11 @@ class HeatManagerCard extends HTMLElement {
       }
     });
     on("[data-tab]", (b) => {
-      // choosing a profile opens its week plan; tapping the open one again folds it
-      this._weekOpen = b.dataset.tab === this._sel ? !this._weekOpen : true;
-      this._sel = b.dataset.tab; this._render();
+      // choosing a profile opens its week plan; tapping the open one again closes it (unless it has unsaved changes)
+      const id = b.dataset.tab;
+      this._sel = id === this._sel && !this._drafts[id] ? null : id; this._render();
     });
+    on("[data-openprofile]", (b) => this._openProfile(b.dataset.openprofile));
     on("[data-fold]", (b) => this._toggleFold(b.dataset.fold));
     on("[data-base]", (b) => {
       const p = this._cur(); if (!p) return;
@@ -728,10 +735,6 @@ ha-icon { --mdc-icon-size:18px; }
 .stitle span { flex:1; } .stitle .chev { transition:transform .2s; color:var(--secondary-text-color); }
 .sec.shut .stitle { margin-bottom:0; } .sec.shut .stitle .chev { transform:rotate(-90deg); }
 .stitle .secwarn { color:var(--error-color, #db4437); }
-.mini { display:flex; flex-direction:column; gap:3px; width:100%; border:none; background:none; padding:4px 0; margin-bottom:8px; }
-.mrow { display:flex; align-items:center; gap:8px; font-size:.75em; color:var(--secondary-text-color); } .mrow span { width:22px; text-align:left; }
-.mbar { position:relative; flex:1; height:10px; border-radius:3px; overflow:hidden; }
-.mbar i { position:absolute; top:0; bottom:0; }
 .weektoggle { margin-top:8px; }
 .tabs { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:12px; }
 .tab { display:flex; align-items:center; gap:8px; padding:8px 14px; border-radius:12px; border:1px solid var(--divider-color); background:var(--card-background-color); }
@@ -791,6 +794,7 @@ ha-icon { --mdc-icon-size:18px; }
 select { font:inherit; color:var(--primary-text-color); background:var(--card-background-color); border:1px solid var(--divider-color); border-radius:8px; padding:6px 8px; max-width:150px; }
 .today { display:flex; flex-direction:column; gap:6px; }
 .trow { display:flex; align-items:center; gap:10px; }
+.trow.link { cursor:pointer; border-radius:6px; } .trow.link:hover { background:var(--secondary-background-color); }
 .tname { width:110px; flex:none; font-size:.85em; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .tbar { position:relative; flex:1; height:22px; border-radius:6px; background:var(--secondary-background-color); overflow:hidden; }
 .tseg { position:absolute; top:0; bottom:0; display:flex; align-items:center; justify-content:center; font-size:.7em; font-weight:600; color:#fff; text-shadow:0 1px 2px rgba(0,0,0,.45); border-right:1px solid var(--card-background-color); box-sizing:border-box; overflow:hidden; white-space:nowrap; }
