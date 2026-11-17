@@ -1,6 +1,6 @@
 /* HeatManager card – weekly heating profiles, room assignment, pause and window state.
  * Served and auto-loaded by the HeatManager integration. */
-const VERSION = "0.6.1";
+const VERSION = "0.7.0";
 const DAYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];
 const PALETTE = ["#f4a340", "#7e8ef1", "#3fb8c9", "#8bc34a", "#e57373", "#ba68c8", "#4db6ac", "#ffb74d"];
 const ICONS = ["mdi:radiator", "mdi:sofa", "mdi:bed", "mdi:teddy-bear", "mdi:shower", "mdi:desk", "mdi:silverware-fork-knife", "mdi:account-group", "mdi:dumbbell", "mdi:home-export-outline", "mdi:snowflake", "mdi:fire"];
@@ -33,6 +33,7 @@ const I18N = {
     noRooms: "Noch keine Räume. Lege sie unter Einstellungen › Geräte & Dienste › HeatManager › Konfigurieren an.",
     noProfiles: "Noch keine Heizprofile – lege mit „Neues Profil“ das erste an.",
     adminOnly: "Profile bearbeiten können nur Administratoren.",
+    showWeek: "Wochenplan bearbeiten", hideWeek: "Wochenplan einklappen", expand: "Aufklappen", collapse: "Einklappen",
     usedBy: "genutzt von {r}", usedByNone: "von keinem Raum genutzt",
     today: "Heute", todayOff: "nicht gesteuert", editProfile: "Bearbeiten", editTitle: "Profil bearbeiten", color: "Farbe",
     vacation: "Urlaubsmodus", vacationSub: "bis {t} · Frostschutz in allen Räumen mit Plan", vacationBtn: "Urlaub…", vacationTitle: "Urlaub bis", vacationHint: "Bis dahin Frostschutz in allen Räumen mit Profil oder Frostschutz, danach läuft der Heizplan weiter. Räume auf Manuell bleiben unberührt.", vacationStart: "Urlaub starten", vacationEnd: "Urlaub beenden",
@@ -66,6 +67,7 @@ const I18N = {
     noRooms: "No rooms yet. Add them under Settings › Devices & services › HeatManager › Configure.",
     noProfiles: "No heating profiles yet – create the first one with “New profile”.",
     adminOnly: "Only administrators can edit profiles.",
+    showWeek: "Edit week plan", hideWeek: "Collapse week plan", expand: "Expand", collapse: "Collapse",
     usedBy: "used by {r}", usedByNone: "not used by any room",
     today: "Today", todayOff: "not controlled", editProfile: "Edit", editTitle: "Edit profile", color: "Colour",
     vacation: "Vacation", vacationSub: "until {t} · frost protection in all scheduled rooms", vacationBtn: "Vacation…", vacationTitle: "Vacation until", vacationHint: "Until then frost protection in all rooms with a profile or frost protection, then the schedule continues. Manual rooms stay untouched.", vacationStart: "Start vacation", vacationEnd: "End vacation",
@@ -137,6 +139,21 @@ class HeatManagerCard extends HTMLElement {
     const ids = [];
     (this._data?.rooms || []).forEach((r) => { ids.push(...r.climates, ...r.windows); });
     return JSON.stringify(ids.map((id) => { const s = this._hass.states[id]; return s ? [s.state, s.attributes.temperature, s.attributes.current_temperature] : null; }));
+  }
+
+  _folded() {
+    if (!this._fold) { try { this._fold = JSON.parse(localStorage.getItem("heatmanager-card:folded") || "{}"); } catch (_) { this._fold = {}; } }
+    return this._fold;
+  }
+  _toggleFold(key) {
+    const f = this._folded(); f[key] = !f[key];
+    try { localStorage.setItem("heatmanager-card:folded", JSON.stringify(f)); } catch (_) { /* private mode */ }
+    this._render();
+  }
+  _sec(key, icon, title, body, extra = "") {
+    const shut = !!this._folded()[key];
+    return `<div class="sec ${shut ? "shut" : ""}"><button class="stitle" data-fold="${key}" aria-expanded="${!shut}"><ha-icon icon="${icon}"></ha-icon><span>${title}</span>${extra}
+      <ha-icon class="chev" icon="mdi:chevron-down"></ha-icon></button>${shut ? "" : body}</div>`;
   }
 
   _profiles() { return this._data?.profiles || []; }
@@ -236,6 +253,7 @@ class HeatManagerCard extends HTMLElement {
           <div class="track ${admin ? "edit" : ""}" data-day="${d}" style="height:${24 * hh}px;background-size:100% ${hh}px">${blocks}<div class="now" data-nowday="${d}"></div></div></div>`;
       }).join("");
       const used = data.rooms.filter((r) => r.profile === p.id).map((r) => r.name);
+      const weekOpen = !!this._weekOpen || !!this._drafts[p.id];
       profHtml = `
         <div class="pcard" style="--pc:${this._pcolor(p.id)}">
           <div class="phead">
@@ -250,10 +268,14 @@ class HeatManagerCard extends HTMLElement {
                 <b style="color:${tempColor(p.base_temp)}">${this._fmtT(p.base_temp)} °C</b>
                 ${admin ? `<button class="ico" data-base="0.5"><ha-icon icon="mdi:plus"></ha-icon></button>` : ""}</div></div>
           </div>
+          ${weekOpen ? `
           <div class="hint"><ha-icon icon="mdi:gesture-swipe-vertical"></ha-icon>${admin ? this._t(window.matchMedia && matchMedia("(pointer: coarse)").matches ? "hintTouch" : "hint") : this._t("adminOnly")}</div>
           <div class="gridwrap"><div class="grid">
             <div class="axis"><div class="dhead"></div><div class="axtrack" style="height:${24 * hh}px">${axis}</div></div>${cols}
           </div></div>
+          <button class="btn small weektoggle" data-act="week-close"><ha-icon icon="mdi:chevron-up"></ha-icon>${this._t("hideWeek")}</button>` : `
+          <button class="mini" data-act="week-open" title="${this._t("showWeek")}">${DAYS.map((d, di) => `<div class="mrow"><span>${dn[di]}</span><div class="mbar" style="background:${tempColor(p.base_temp)}55">${w[d].map((b) => `<i style="left:${b.from / 14.4}%;width:${(b.to - b.from) / 14.4}%;background:${tempColor(b.t)}"></i>`).join("")}</div></div>`).join("")}</button>
+          <button class="btn small weektoggle" data-act="week-open"><ha-icon icon="mdi:calendar-edit"></ha-icon>${this._t("showWeek")}</button>`}
           ${this._drafts[p.id] ? `<div class="savebar"><ha-icon icon="mdi:content-save-alert"></ha-icon><span>${this._t("unsaved", { p: esc(p.name) })}</span>
             <button class="btn" data-act="discard">${this._t("discard")}</button><button class="btn primary" data-act="save">${this._t("save")}</button></div>` : ""}
         </div>`;
@@ -275,12 +297,17 @@ class HeatManagerCard extends HTMLElement {
         const n = r.climates.length > 1 ? ((st && st.attributes.friendly_name) || pr.entity_id) : "Thermostat";
         return `<small class="prob" title="${this._t("probHint")}"><ha-icon icon="mdi:alert-circle"></ha-icon>${esc(this._t(pr.kind === "unavailable" ? "probUnavailable" : "probNotAccepting", { n }))}</small>`;
       }).join("");
-      return `<div class="room ${win ? "open" : ""} ${probs ? "problem" : ""}">
-        <div class="rdot" style="background:${this._pcolor(r.profile)}"></div>
-        <button class="rname" data-more="${esc(r.climates[0])}"><span>${esc(r.name)}${unav ? ` <small class="warn">${this._t("unreachable")}</small>` : ""}${win ? ` <small class="win"><ha-icon icon="mdi:window-open-variant"></ha-icon>${this._t("windowOpen")}</small>` : ""}</span>${probs}${next}</button>
-        <div class="rtemp"><span>${cur != null ? this._fmtT(cur) + " °C" : "–"}</span><ha-icon icon="mdi:arrow-right-thin"></ha-icon><b style="color:${tgt != null ? tempColor(tgt) : "inherit"}">${tgt != null ? this._fmtT(tgt) + " °C" : "–"}</b></div>
-        <button class="ico ${r.override ? "act" : ""}" data-ovr="${esc(r.id)}" title="${this._t("override")}"><ha-icon icon="mdi:thermometer-chevron-up"></ha-icon></button>
-        <select data-room="${esc(r.id)}">${options.map(([v, l]) => `<option value="${esc(v)}" ${v === r.profile ? "selected" : ""}>${esc(l)}</option>`).join("")}</select>
+      const flags = `${unav ? `<small class="warn"><ha-icon icon="mdi:wifi-off"></ha-icon>${this._t("unreachable")}</small>` : ""}${win ? `<small class="win"><ha-icon icon="mdi:window-open-variant"></ha-icon>${this._t("windowOpen")}</small>` : ""}${probs}${next}`;
+      return `<div class="room ${win ? "open" : ""} ${probs ? "problem" : ""}" style="--pc:${this._pcolor(r.profile)}">
+        <div class="rtop">
+          <button class="rname" data-more="${esc(r.climates[0])}" title="${esc(r.name)}">${esc(r.name)}</button>
+          <div class="rtemp"><span>${cur != null ? this._fmtT(cur) + "°" : "–"}</span><ha-icon icon="mdi:arrow-right-thin"></ha-icon><b style="color:${tgt != null ? tempColor(tgt) : "inherit"}">${tgt != null ? this._fmtT(tgt) + "°" : "–"}</b></div>
+        </div>
+        <div class="rbot">
+          <div class="rflags">${flags}</div>
+          <button class="ico ${r.override ? "act" : ""}" data-ovr="${esc(r.id)}" title="${this._t("override")}"><ha-icon icon="mdi:thermometer-chevron-up"></ha-icon></button>
+          <select data-room="${esc(r.id)}">${options.map(([v, l]) => `<option value="${esc(v)}" ${v === r.profile ? "selected" : ""}>${esc(l)}</option>`).join("")}</select>
+        </div>
       </div>`;
     }).join("") : `<div class="empty">${this._t("noRooms")}</div>`;
 
@@ -292,17 +319,18 @@ class HeatManagerCard extends HTMLElement {
         return `<div class="tseg ${v == null ? "off" : ""} ${why === "override" ? "ovr" : ""}" style="left:${f / 14.4}%;width:${w}%;${v != null ? `background:${tempColor(v)}` : ""}" title="${esc(tip)}">${label}</div>`;
       }).join("")}<div class="tnow"></div></div></div>`).join("");
       const ticks = [0, 6, 12, 18, 24].map((x) => `<span style="left:${x * 100 / 24}%">${pad(x)}</span>`).join("");
-      todayHtml = `<div class="sec"><div class="stitle"><ha-icon icon="mdi:chart-timeline"></ha-icon>${this._t("today")}</div>
-        <div class="today">${rowsT}<div class="trow"><span class="tname"></span><div class="tticks">${ticks}</div></div></div></div>`;
+      todayHtml = this._sec("today", "mdi:chart-timeline", this._t("today"),
+        `<div class="today">${rowsT}<div class="trow"><span class="tname"></span><div class="tticks">${ticks}</div></div></div>`);
     }
 
     this.shadowRoot.innerHTML = `<style>${STYLE}</style>
       <ha-card>
         ${pauseHtml}
         ${todayHtml}
-        <div class="sec"><div class="stitle"><ha-icon icon="mdi:calendar-week"></ha-icon>${this._t("profiles")}</div><div class="tabs">${tabs}</div>${profHtml}</div>
-        <div class="sec"><div class="stitle"><ha-icon icon="mdi:home-thermometer"></ha-icon>${this._t("rooms")}</div><div class="rooms">${rooms}</div>
-          <div class="legend">${this._t("legend", { f: this._fmtT(data.settings.frost_temp), d: data.settings.window_delay })}</div></div>
+        ${this._sec("profiles", "mdi:calendar-week", this._t("profiles"), `<div class="tabs">${tabs}</div>${profHtml}`)}
+        ${this._sec("rooms", "mdi:home-thermometer", this._t("rooms"), `<div class="rooms">${rooms}</div>
+          <div class="legend">${this._t("legend", { f: this._fmtT(data.settings.frost_temp), d: data.settings.window_delay })}</div>`,
+          data.rooms.some((r) => (r.problems || []).length) ? `<ha-icon class="secwarn" icon="mdi:alert-circle"></ha-icon>` : "")}
         ${this._dlgHtml()}
       </ha-card>`;
     this._bind();
@@ -423,7 +451,7 @@ class HeatManagerCard extends HTMLElement {
       d.busy = true; d.name = name; d.template = tplId; this._render();
       try {
         const res = await this._ws({ type: "heatmanager/profile/save", name, icon: d.icon, color: d.color, base_temp: d.t, week: tpl ? tpl.week : {} });
-        this._sel = res.profile_id; this._dlg = null; this._toast(this._t("created", { p: name })); this._render();
+        this._sel = res.profile_id; this._weekOpen = true; this._dlg = null; this._toast(this._t("created", { p: name })); this._render();
       } catch (e) { d.busy = false; this._render(); }
       return;
     }
@@ -473,6 +501,8 @@ class HeatManagerCard extends HTMLElement {
       const a = b.dataset.act;
       if (a === "resume") this._ws({ type: "heatmanager/resume" }).catch(() => {});
       if (a === "save") this._save();
+      if (a === "week-open") { this._weekOpen = true; this._render(); }
+      if (a === "week-close") { this._weekOpen = false; this._render(); }
       if (a === "discard") { delete this._drafts[this._sel]; this._render(); }
       if (a === "new-profile") { this._dlg = { kind: "newprofile", name: "", icon: ICONS[0], color: PALETTE[this._profiles().length % PALETTE.length], template: "", t: 17 }; this._render(); }
       if (a === "edit-profile") {
@@ -493,7 +523,12 @@ class HeatManagerCard extends HTMLElement {
         this._dlg = { kind: "pausedate", value: `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T16:00` }; this._render();
       }
     });
-    on("[data-tab]", (b) => { this._sel = b.dataset.tab; this._render(); });
+    on("[data-tab]", (b) => {
+      // choosing a profile opens its week plan; tapping the open one again folds it
+      this._weekOpen = b.dataset.tab === this._sel ? !this._weekOpen : true;
+      this._sel = b.dataset.tab; this._render();
+    });
+    on("[data-fold]", (b) => this._toggleFold(b.dataset.fold));
     on("[data-base]", (b) => {
       const p = this._cur(); if (!p) return;
       const v = Math.max(5, Math.min(25, Number(p.base_temp) + Number(b.dataset.base)));
@@ -687,7 +722,15 @@ ha-icon { --mdc-icon-size:18px; }
 .ico:hover { background:var(--secondary-background-color); }
 .ico.big { width:44px; height:44px; background:var(--secondary-background-color); } .ico.big ha-icon { --mdc-icon-size:24px; }
 .sec { margin-top:20px; }
-.stitle { display:flex; align-items:center; gap:8px; font-size:1.15em; font-weight:500; margin-bottom:10px; }
+.stitle { display:flex; align-items:center; gap:8px; font-size:1.15em; font-weight:500; margin-bottom:10px; width:100%; border:none; background:none; padding:4px 0; text-align:left; }
+.stitle span { flex:1; } .stitle .chev { transition:transform .2s; color:var(--secondary-text-color); }
+.sec.shut .stitle { margin-bottom:0; } .sec.shut .stitle .chev { transform:rotate(-90deg); }
+.stitle .secwarn { color:var(--error-color, #db4437); }
+.mini { display:flex; flex-direction:column; gap:3px; width:100%; border:none; background:none; padding:4px 0; margin-bottom:8px; }
+.mrow { display:flex; align-items:center; gap:8px; font-size:.75em; color:var(--secondary-text-color); } .mrow span { width:22px; text-align:left; }
+.mbar { position:relative; flex:1; height:10px; border-radius:3px; overflow:hidden; }
+.mbar i { position:absolute; top:0; bottom:0; }
+.weektoggle { margin-top:8px; }
 .tabs { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:12px; }
 .tab { display:flex; align-items:center; gap:8px; padding:8px 14px; border-radius:12px; border:1px solid var(--divider-color); background:var(--card-background-color); }
 .tab ha-icon { color:var(--pc); }
@@ -727,20 +770,22 @@ ha-icon { --mdc-icon-size:18px; }
 .now::before { content:""; position:absolute; left:-3px; top:-3px; width:8px; height:8px; border-radius:50%; background:var(--error-color, #e53935); }
 .savebar { position:sticky; bottom:0; margin-top:12px; display:flex; flex-wrap:wrap; align-items:center; gap:10px; padding:10px 14px; border-radius:12px; background:color-mix(in srgb, var(--primary-color) 16%, var(--card-background-color)); border:1px solid var(--primary-color); }
 .savebar span { flex:1; }
-.rooms { display:grid; grid-template-columns:repeat(auto-fill, minmax(320px, 1fr)); gap:8px; }
-.room { display:flex; align-items:center; gap:10px; padding:10px 12px; border-radius:12px; background:var(--secondary-background-color); }
+.rooms { display:grid; grid-template-columns:repeat(auto-fill, minmax(min(280px, 100%), 1fr)); gap:8px; }
+.room { min-width:0; display:flex; flex-direction:column; gap:6px; padding:10px 12px 10px 14px; border-radius:12px; background:var(--secondary-background-color); border-left:4px solid var(--pc); }
+.rtop, .rbot { display:flex; align-items:center; gap:8px; min-width:0; }
+.rflags { flex:1; min-width:0; display:flex; flex-wrap:wrap; gap:2px 10px; }
+.rflags small { display:inline-flex; align-items:center; gap:3px; font-size:.78em; line-height:1.25; min-width:0; } .rflags small ha-icon { --mdc-icon-size:14px; }
 .room.open { box-shadow:inset 0 0 0 1px rgba(79,195,247,.6); }
-.rdot { width:10px; height:10px; border-radius:50%; flex:none; }
-.rname { border:none; background:none; padding:0; text-align:left; flex:1; font-weight:500; display:flex; flex-direction:column; gap:2px; min-width:0; }
-.rname small { font-weight:400; }
-.rname small.warn { color:var(--warning-color, #ff9800); }
-.rname small.win { color:#4fc3f7; font-weight:500; display:inline-flex; align-items:center; gap:3px; margin-left:4px; } .rname small.win ha-icon { --mdc-icon-size:15px; }
-.rname small.next { color:var(--secondary-text-color); font-size:.78em; }
+.rname { border:none; background:none; padding:0; text-align:left; flex:1; font-weight:600; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.rflags small.warn { color:var(--warning-color, #ff9800); }
+.rflags small.win { color:#4fc3f7; font-weight:500; }
+.rflags small.next { color:var(--secondary-text-color); }
 .room.problem { box-shadow:inset 0 0 0 1px color-mix(in srgb, var(--error-color, #db4437) 70%, transparent); }
-.rname small.prob { color:var(--error-color, #db4437); font-size:.78em; display:inline-flex; align-items:center; gap:3px; } .rname small.prob ha-icon { --mdc-icon-size:14px; }
-.rname small.ovr { color:var(--warning-color, #ff9800); font-size:.78em; display:inline-flex; align-items:center; gap:3px; } .rname small.ovr ha-icon { --mdc-icon-size:14px; }
+.rflags small.prob { color:var(--error-color, #db4437); }
+.rflags small.ovr { color:var(--warning-color, #ff9800); }
 .ico.act { color:var(--warning-color, #ff9800); background:color-mix(in srgb, var(--warning-color, #ff9800) 18%, transparent); }
-.rtemp { display:flex; align-items:center; gap:2px; font-size:.9em; color:var(--secondary-text-color); white-space:nowrap; } .rtemp b { font-weight:600; }
+.rtemp { display:flex; align-items:center; gap:2px; font-size:.95em; color:var(--secondary-text-color); white-space:nowrap; flex:none; } .rtemp b { font-weight:600; }
+.rbot select { max-width:130px; flex:none; }
 select { font:inherit; color:var(--primary-text-color); background:var(--card-background-color); border:1px solid var(--divider-color); border-radius:8px; padding:6px 8px; max-width:150px; }
 .today { display:flex; flex-direction:column; gap:6px; }
 .trow { display:flex; align-items:center; gap:10px; }
@@ -770,7 +815,7 @@ dialog.overlay::backdrop { background:rgba(0,0,0,.5); }
 .dsub { font-size:.85em; color:var(--secondary-text-color); margin:6px 0 8px; }
 .dchips { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:16px; }
 .dbtns { display:flex; gap:8px; align-items:center; } .sp { flex:1; }
-@media (max-width:600px) { ha-card { padding:12px; } .phead .lbl { display:none; } .pcard { padding:8px; } .base small { display:none; } .rooms { grid-template-columns:1fr; } .tname { width:80px; } }
+@media (max-width:600px) { ha-card { padding:12px; } .phead .lbl { display:none; } .pcard { padding:8px; } .base small { display:none; } .rooms { grid-template-columns:minmax(0, 1fr); } .tname { width:80px; } }
 `;
 
 if (!customElements.get("heatmanager-card")) {

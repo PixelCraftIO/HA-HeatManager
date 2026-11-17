@@ -44,6 +44,7 @@ Copy `custom_components/heatmanager` into your `config/custom_components/` folde
    Tip: put it in a view of type **Panel** to give the grid the full width. Options: `show_today: false` hides the timeline, `hour_height` (default 22) sets the grid row height.
 
 4. In the card create profiles with **New profile**, drag time blocks into the grid and assign profiles to rooms.
+   Every section (Today, Profiles, Rooms) folds via its header and the card remembers this per browser. The week grid shows as a compact 7‑day preview; tap it (or select/create a profile) to edit.
    On touch screens a normal swipe scrolls the page; **press and hold** a moment, then drag to create or move a block. A short tap opens a block.
 
 Editing profiles requires an administrator account; everybody can assign profiles and pause.
@@ -99,7 +100,7 @@ Put thermostats into a manual/heat mode so their internal week program does not 
 
 ## Deutsch
 
-HeatManager steuert Thermostate über **Heizprofile mit Wochenraster**. Zeitblöcke werden mit der Maus ins Raster gezogen (auf dem Tablet: kurz gedrückt halten, dann ziehen; normales Wischen scrollt), jeder Block bekommt eine eigene Temperatur, außerhalb gilt die Grundtemperatur. Räume (ein oder mehrere Thermostate, optional Fensterkontakte) bekommen ein Profil, *Frostschutz* oder *Manuell*.
+HeatManager steuert Thermostate über **Heizprofile mit Wochenraster**. Zeitblöcke werden mit der Maus ins Raster gezogen (auf dem Tablet: kurz gedrückt halten, dann ziehen; normales Wischen scrollt), jeder Block bekommt eine eigene Temperatur, außerhalb gilt die Grundtemperatur. Alle Abschnitte der Karte lassen sich über ihre Überschrift einklappen (wird pro Browser gemerkt); das Wochenraster erscheint als kompakte Vorschau und öffnet sich per Antippen, bei Profilauswahl oder beim Anlegen eines Profils. Räume (ein oder mehrere Thermostate, optional Fensterkontakte) bekommen ein Profil, *Frostschutz* oder *Manuell*.
 
 **Fenster offen** → nach 30 s Frostschutz, beim Schließen zurück zum Profil bzw. zur vorherigen Temperatur. **Raum übersteuern**: über das Thermometer-Symbol am Raum z. B. 2 Std. auf 22 °C oder bis zum nächsten Wechsel, danach zurück zum Plan. **Abwesenheit**: optional Personen verknüpfen (Konfigurieren › Abwesenheit); ist niemand zu Hause, gilt eine Absenktemperatur. **Urlaub**: Frostschutz bis zu einem Datum, danach läuft der Plan weiter. **Pause** für Stunden, eine Woche oder bis zu einem Datum. Manuelle Änderungen am Thermostat gelten bis zum nächsten Wechsel im Profil. Nimmt ein Thermostat Sollwerte dauerhaft nicht an oder ist es über eine Stunde nicht erreichbar, zeigt die Karte das am Raum und Home Assistant erzeugt einen Reparaturhinweis.
 
