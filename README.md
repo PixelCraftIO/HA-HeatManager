@@ -7,6 +7,8 @@ Weekly heating profiles with a visual 7‑day grid, profiles you assign to rooms
 ## Features
 
 - **Heating profiles** (e.g. “Kids”, “Bathroom”, “Home office”): mark time blocks in a Monday–Sunday grid by dragging, give each block its own temperature. Outside the blocks the profile’s base temperature applies.
+- **Today at a glance**: a slim timeline with one row per room shows when each room heats today (hide it with `show_today: false`).
+- **Profiles** can be renamed and get a new icon and colour at any time (*Edit* next to the grid).
 - **Rooms**: one or more thermostats per room, optional window/door contacts. Each room follows a profile, *Frost protection* or *Manual* (left alone).
 - **Window open**: after a configurable delay (default 30 s) the room drops to frost protection. When the window closes, the profile takes over again – or, for manual rooms and while paused, the previous setpoint is restored.
 - **Override a room**: from the card (thermometer button on the room) or the `heatmanager.override_room` action hold one room at e.g. 22 °C for 1/2/4 h or until its next change in the profile – then it returns to its plan by itself.
@@ -39,7 +41,7 @@ Copy `custom_components/heatmanager` into your `config/custom_components/` folde
    type: custom:heatmanager-card
    ```
 
-   Tip: put it in a view of type **Panel** to give the grid the full width.
+   Tip: put it in a view of type **Panel** to give the grid the full width. Options: `show_today: false` hides the timeline, `hour_height` (default 22) sets the grid row height.
 
 4. In the card create profiles with **New profile**, drag time blocks into the grid and assign profiles to rooms.
    On touch screens a normal swipe scrolls the page; **press and hold** a moment, then drag to create or move a block. A short tap opens a block.
@@ -98,6 +100,8 @@ Put thermostats into a manual/heat mode so their internal week program does not 
 HeatManager steuert Thermostate über **Heizprofile mit Wochenraster**. Zeitblöcke werden mit der Maus ins Raster gezogen (auf dem Tablet: kurz gedrückt halten, dann ziehen; normales Wischen scrollt), jeder Block bekommt eine eigene Temperatur, außerhalb gilt die Grundtemperatur. Räume (ein oder mehrere Thermostate, optional Fensterkontakte) bekommen ein Profil, *Frostschutz* oder *Manuell*.
 
 **Fenster offen** → nach 30 s Frostschutz, beim Schließen zurück zum Profil bzw. zur vorherigen Temperatur. **Raum übersteuern**: über das Thermometer-Symbol am Raum z. B. 2 Std. auf 22 °C oder bis zum nächsten Wechsel, danach zurück zum Plan. **Abwesenheit**: optional Personen verknüpfen (Konfigurieren › Abwesenheit); ist niemand zu Hause, gilt eine Absenktemperatur. **Urlaub**: Frostschutz bis zu einem Datum, danach läuft der Plan weiter. **Pause** für Stunden, eine Woche oder bis zu einem Datum. Manuelle Änderungen am Thermostat gelten bis zum nächsten Wechsel im Profil. Nimmt ein Thermostat Sollwerte dauerhaft nicht an oder ist es über eine Stunde nicht erreichbar, zeigt die Karte das am Raum und Home Assistant erzeugt einen Reparaturhinweis.
+
+Die Zeitleiste **Heute** zeigt pro Raum, wann geheizt wird. Profile lassen sich jederzeit umbenennen, Symbol und Farbe ändern (*Bearbeiten*).
 
 Einrichtung: Integration hinzufügen → **Konfigurieren** → Räume anlegen → Karte `type: custom:heatmanager-card` aufs Dashboard (am besten in eine Ansicht vom Typ *Panel*).
 
