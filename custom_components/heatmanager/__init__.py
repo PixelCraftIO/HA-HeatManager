@@ -18,6 +18,7 @@ from homeassistant.util import dt as dt_util
 import voluptuous as vol
 
 from .const import CARD_FILENAME, DOMAIN, FRONTEND_URL, NAME, STORAGE_KEY, STORAGE_VERSION, VERSION
+from .loader import async_ensure_loader, async_remove_loader
 from .manager import HeatManager, get_manager
 from .websocket import async_register_websocket
 
@@ -125,6 +126,8 @@ async def _async_register_frontend(hass: HomeAssistant) -> None:
         [StaticPathConfig(FRONTEND_URL, str(Path(__file__).parent / "frontend"), False)]
     )
     add_extra_js_url(hass, f"{FRONTEND_URL}/{CARD_FILENAME}?v={VERSION}")
+    # pages opened while Home Assistant is still starting miss the line above
+    await async_ensure_loader(hass)
 
 
 def _manager(hass: HomeAssistant) -> HeatManager:
@@ -182,3 +185,4 @@ async def async_unload_entry(hass: HomeAssistant, entry: HeatManagerConfigEntry)
 async def async_remove_entry(hass: HomeAssistant, entry: HeatManagerConfigEntry) -> None:
     """Remove stored profiles when the integration is deleted."""
     await Store(hass, STORAGE_VERSION, f"{STORAGE_KEY}.{entry.entry_id}").async_remove()
+    await async_remove_loader(hass)
