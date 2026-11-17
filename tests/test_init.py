@@ -441,6 +441,87 @@ async def test_long_unavailable_thermostat_reported(hass: HomeAssistant, setup, 
     assert registry.async_get_issue(DOMAIN, f"thermostat_{CLIMATE}") is None
 
 
+async def test_away_lowers_profile_rooms(hass: HomeAssistant, setup, freezer: FrozenDateTimeFactory) -> None:
+    manager, calls, apply, entry = setup
+    hass.states.async_set("person.anna", "home")
+    hass.states.async_set("person.ben", "not_home")
+    pid = manager.save_profile({"name": "Kinder", "base_temp": 17, "week": WEEK_ALL_DAY})
+    manager.set_assignment("r1", pid)
+    hass.config_entries.async_update_entry(
+        entry,
+        options={
+            **entry.options,
+            "presence_entities": ["person.anna", "person.ben"],
+            "away_temp": 16,
+            "away_delay": 10,
+        },
+    )
+    await hass.async_block_till_done()
+    manager = entry.runtime_data
+    apply(calls[-1])
+    assert last_temp(calls) == 21
+
+    hass.states.async_set("person.anna", "not_home")
+    await hass.async_block_till_done()
+    freezer.tick(timedelta(minutes=5))
+    async_fire_time_changed(hass)
+    await hass.async_block_till_done()
+    assert last_temp(calls) == 21  # not yet
+    freezer.tick(timedelta(minutes=6))
+    async_fire_time_changed(hass)
+    await hass.async_block_till_done()
+    assert last_temp(calls) == 16
+    assert hass.states.get("sensor.heatmanager_kids_target_temperature").attributes["reason"] == "away"
+    assert manager.as_dict()["presence"] == {"configured": True, "away": True, "away_temp": 16.0}
+    apply(calls[-1])
+
+    hass.states.async_set("person.ben", "home")
+    await hass.async_block_till_done()
+    assert last_temp(calls) == 21
+
+
+async def test_vacation(hass: HomeAssistant, setup, freezer: FrozenDateTimeFactory, hass_ws_client) -> None:
+    manager, calls, apply, entry = setup
+    client = await hass_ws_client(hass)
+    pid = manager.save_profile({"name": "Kinder", "base_temp": 17, "week": WEEK_ALL_DAY})
+    manager.set_assignment("r1", pid)
+    await hass.async_block_till_done()
+    apply(calls[-1])
+    await hass.services.async_call(DOMAIN, "start_vacation", {"until": "2026-11-20 16:00:00"}, blocking=True)
+    await hass.async_block_till_done()
+    assert last_temp(calls) == 5
+    assert hass.states.get("sensor.heatmanager_kids_target_temperature").attributes["reason"] == "vacation"
+    apply(calls[-1])
+
+    await hass.config_entries.async_reload(entry.entry_id)  # survives restarts
+    await hass.async_block_till_done()
+    assert entry.runtime_data.vacation_until is not None
+
+    freezer.move_to(dt_util.parse_datetime("2026-11-20T16:00:01+01:00"))
+    async_fire_time_changed(hass)
+    await hass.async_block_till_done()
+    assert entry.runtime_data.vacation_until is None
+    assert last_temp(calls) == 21
+    apply(calls[-1])
+
+    await client.send_json({"id": 1, "type": "heatmanager/vacation", "until": "2026-12-01T10:00:00"})
+    assert (await client.receive_json())["success"]
+    await hass.async_block_till_done()
+    assert last_temp(calls) == 5
+    apply(calls[-1])
+    await client.send_json({"id": 2, "type": "heatmanager/vacation", "end": True})
+    assert (await client.receive_json())["success"]
+    await hass.async_block_till_done()
+    assert last_temp(calls) == 21
+
+
+async def test_vacation_leaves_manual_rooms(hass: HomeAssistant, setup) -> None:
+    manager, calls, _, _ = setup
+    manager.set_vacation(dt_util.now() + timedelta(days=2))
+    await hass.async_block_till_done()
+    assert calls == []
+
+
 async def test_setup_component_registers_services(hass: HomeAssistant) -> None:
     assert await async_setup_component(hass, DOMAIN, {})
     assert hass.services.has_service(DOMAIN, "pause")

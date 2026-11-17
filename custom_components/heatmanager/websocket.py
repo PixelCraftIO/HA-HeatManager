@@ -26,6 +26,7 @@ def async_register_websocket(hass: HomeAssistant) -> None:
         ws_room_override,
         ws_room_clear_override,
         ws_pause,
+        ws_vacation,
         ws_resume,
     ):
         websocket_api.async_register_command(hass, handler)
@@ -196,6 +197,33 @@ def ws_pause(hass: HomeAssistant, connection: websocket_api.ActiveConnection, ms
             connection.send_error(msg["id"], "invalid_format", "Date must be in the future")
             return
     manager.set_pause(True, until)
+    connection.send_result(msg["id"])
+
+
+@websocket_api.websocket_command(
+    {vol.Required("type"): "heatmanager/vacation", vol.Exclusive("until", "v"): str, vol.Exclusive("end", "v"): bool}
+)
+@callback
+def ws_vacation(hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]) -> None:
+    """Start the vacation mode until a moment, or end it."""
+    manager = _manager_or_error(hass, connection, msg["id"])
+    if manager is None:
+        return
+    until = None
+    if "until" in msg:
+        parsed = dt_util.parse_datetime(msg["until"])
+        if parsed is None:
+            connection.send_error(msg["id"], "invalid_format", "Invalid date")
+            return
+        until = dt_util.as_local(parsed if parsed.tzinfo else parsed.replace(tzinfo=dt_util.get_default_time_zone()))
+    elif not msg.get("end"):
+        connection.send_error(msg["id"], "invalid_format", "until or end required")
+        return
+    try:
+        manager.set_vacation(until)
+    except ValueError as err:
+        connection.send_error(msg["id"], "invalid_format", str(err))
+        return
     connection.send_result(msg["id"])
 
 

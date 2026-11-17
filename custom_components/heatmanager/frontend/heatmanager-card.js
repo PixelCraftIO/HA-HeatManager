@@ -1,6 +1,6 @@
 /* HeatManager card – weekly heating profiles, room assignment, pause and window state.
  * Served and auto-loaded by the HeatManager integration. */
-const VERSION = "0.3.0";
+const VERSION = "0.4.0";
 const DAYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];
 const PALETTE = ["#f4a340", "#7e8ef1", "#3fb8c9", "#8bc34a", "#e57373", "#ba68c8", "#4db6ac", "#ffb74d"];
 const ICONS = ["mdi:radiator", "mdi:sofa", "mdi:bed", "mdi:teddy-bear", "mdi:shower", "mdi:desk", "mdi:silverware-fork-knife", "mdi:account-group", "mdi:dumbbell", "mdi:home-export-outline", "mdi:snowflake", "mdi:fire"];
@@ -33,6 +33,8 @@ const I18N = {
     noRooms: "Noch keine Räume. Lege sie unter Einstellungen › Geräte & Dienste › HeatManager › Konfigurieren an.",
     noProfiles: "Noch keine Heizprofile – lege mit „Neues Profil“ das erste an.",
     adminOnly: "Profile bearbeiten können nur Administratoren.",
+    vacation: "Urlaubsmodus", vacationSub: "bis {t} · Frostschutz in allen Räumen mit Plan", vacationBtn: "Urlaub…", vacationTitle: "Urlaub bis", vacationHint: "Bis dahin Frostschutz in allen Räumen mit Profil oder Frostschutz, danach läuft der Heizplan weiter. Räume auf Manuell bleiben unberührt.", vacationStart: "Urlaub starten", vacationEnd: "Urlaub beenden",
+    away: "Niemand zu Hause · höchstens {t} °C", home: "Jemand zu Hause",
     probNotAccepting: "{n} nimmt Sollwert nicht an", probUnavailable: "{n} seit über 1 Std. nicht erreichbar", probHint: "Details unter Einstellungen › Reparaturen",
     override: "Übersteuern", overrideTitle: "{r} übersteuern", overrideFor: "Wie lange?", untilNext: "Bis zum nächsten Wechsel", untilNextAt: "Bis zum Wechsel um {t}",
     overrideActive: "{v} bis {t}", overrideEnd: "Beenden", overrideHint: "Danach folgt der Raum wieder seinem Plan.", overrideHintManual: "Danach bekommt das Thermostat wieder seinen vorherigen Wert.",
@@ -62,6 +64,8 @@ const I18N = {
     noRooms: "No rooms yet. Add them under Settings › Devices & services › HeatManager › Configure.",
     noProfiles: "No heating profiles yet – create the first one with “New profile”.",
     adminOnly: "Only administrators can edit profiles.",
+    vacation: "Vacation", vacationSub: "until {t} · frost protection in all scheduled rooms", vacationBtn: "Vacation…", vacationTitle: "Vacation until", vacationHint: "Until then frost protection in all rooms with a profile or frost protection, then the schedule continues. Manual rooms stay untouched.", vacationStart: "Start vacation", vacationEnd: "End vacation",
+    away: "Nobody home · at most {t} °C", home: "Somebody home",
     probNotAccepting: "{n} ignores its setpoint", probUnavailable: "{n} unavailable for over 1 h", probHint: "Details under Settings › Repairs",
     override: "Override", overrideTitle: "Override {r}", overrideFor: "For how long?", untilNext: "Until next change", untilNextAt: "Until the change at {t}",
     overrideActive: "{v} until {t}", overrideEnd: "End", overrideHint: "Afterwards the room follows its plan again.", overrideHintManual: "Afterwards the thermostat gets its previous setpoint back.",
@@ -178,19 +182,28 @@ class HeatManagerCard extends HTMLElement {
       return;
     }
     const h = this._hass, c = this._c, admin = this._admin();
-    const paused = data.pause.active;
-    const pauseHtml = `
+    const paused = data.pause.active, vac = data.vacation && data.vacation.until, pres = data.presence || {};
+    const away = pres.configured && pres.away ? `<div class="pt2 away"><ha-icon icon="mdi:home-export-outline"></ha-icon>${this._t("away", { t: this._fmtT(pres.away_temp) })}</div>` : "";
+    const pauseHtml = vac ? `
+      <div class="pause vac">
+        <div class="pstat">
+          <div class="picon"><ha-icon icon="mdi:airplane"></ha-icon></div>
+          <div class="ptxt"><div class="pt1">${this._t("vacation")}</div><div class="pt2">${this._t("vacationSub", { t: esc(this._fmtDate(vac)) })}</div></div>
+          <button class="btn primary" data-act="vac-end"><ha-icon icon="mdi:home"></ha-icon>${this._t("vacationEnd")}</button>
+        </div>
+      </div>` : `
       <div class="pause ${paused ? "on" : ""}">
         <div class="pstat">
           <div class="picon"><ha-icon icon="${paused ? "mdi:pause" : "mdi:play"}"></ha-icon></div>
           <div class="ptxt"><div class="pt1">${this._t(paused ? "paused" : "active")}</div>
-            <div class="pt2">${paused ? (data.pause.until ? this._t("pausedUntil", { t: esc(this._fmtDate(data.pause.until)) }) : this._t("pausedOpen")) : this._t("activeSub")}</div></div>
+            <div class="pt2">${paused ? (data.pause.until ? this._t("pausedUntil", { t: esc(this._fmtDate(data.pause.until)) }) : this._t("pausedOpen")) : this._t("activeSub")}</div>${away}</div>
           ${paused ? `<button class="btn primary" data-act="resume"><ha-icon icon="mdi:play"></ha-icon>${this._t("resume")}</button>` : ""}
         </div>
         <div class="pchips"><span class="plabel">${this._t(paused ? "extend" : "pause")}:</span>
           ${[2, 8, 24].map((n) => `<button class="chip" data-pause="${n}">${this._t("hours", { n })}</button>`).join("")}
           <button class="chip" data-pause="168">${this._t("week")}</button>
           <button class="chip" data-act="pause-date"><ha-icon icon="mdi:calendar"></ha-icon>${this._t("untilDate")}</button>
+          <button class="chip" data-act="vac-date"><ha-icon icon="mdi:airplane"></ha-icon>${this._t("vacationBtn")}</button>
         </div>
       </div>`;
 
@@ -328,11 +341,12 @@ class HeatManagerCard extends HTMLElement {
         <div class="dsub">${this._t(r.plan_change ? "overrideHint" : "overrideHintManual")}</div>
         <div class="dbtns">${r.override ? `<button class="btn danger" data-dact="endovr"><ha-icon icon="mdi:close"></ha-icon>${this._t("overrideEnd")}</button>` : ""}<span class="sp"></span>
           <button class="btn" data-dact="cancel">${this._t("cancel")}</button><button class="btn primary" data-dact="apply">${this._t("apply")}</button></div>`;
-    } else if (d.kind === "pausedate") {
-      body = `<div class="dtitle">${this._t("pauseTitle")}</div>
+    } else if (d.kind === "pausedate" || d.kind === "vacdate") {
+      const vac = d.kind === "vacdate";
+      body = `<div class="dtitle">${this._t(vac ? "vacationTitle" : "pauseTitle")}</div>
         <div class="drow"><label>${this._t("dateTime")}<input type="datetime-local" id="ddt" value="${d.value}"></label></div>
-        <div class="dsub">${this._t("pauseHint")}</div>
-        <div class="dbtns"><span class="sp"></span><button class="btn" data-dact="cancel">${this._t("cancel")}</button><button class="btn primary" data-dact="apply">${this._t("pause")}</button></div>`;
+        <div class="dsub">${this._t(vac ? "vacationHint" : "pauseHint")}</div>
+        <div class="dbtns"><span class="sp"></span><button class="btn" data-dact="cancel">${this._t("cancel")}</button><button class="btn primary" data-dact="apply">${this._t(vac ? "vacationStart" : "pause")}</button></div>`;
     }
     return `<div class="overlay"><div class="dlg">${body}</div></div>`;
   }
@@ -341,10 +355,10 @@ class HeatManagerCard extends HTMLElement {
 
   async _applyDlg() {
     const d = this._dlg, p = this._cur(), r = this.shadowRoot;
-    if (d.kind === "pausedate") {
+    if (d.kind === "pausedate" || d.kind === "vacdate") {
       const v = r.getElementById("ddt").value, dt = new Date(v);
       if (!v || isNaN(dt) || dt <= new Date()) { this._toast(this._t("errFuture")); return; }
-      await this._ws({ type: "heatmanager/pause", until: dt.toISOString() }).catch(() => {});
+      await this._ws({ type: d.kind === "vacdate" ? "heatmanager/vacation" : "heatmanager/pause", until: dt.toISOString() }).catch(() => {});
       this._closeDlg(); return;
     }
     if (d.kind === "override") {
@@ -416,6 +430,11 @@ class HeatManagerCard extends HTMLElement {
       if (a === "del-profile") {
         const p = this._cur(); if (!p) return;
         this._dlg = { kind: "delprofile", id: p.id, name: p.name, used: this._data.rooms.filter((x) => x.profile === p.id).map((x) => x.name) }; this._render();
+      }
+      if (a === "vac-end") this._ws({ type: "heatmanager/vacation", end: true }).catch(() => {});
+      if (a === "vac-date") {
+        const d = new Date(Date.now() + 7 * 86400000); d.setHours(16, 0, 0, 0);
+        this._dlg = { kind: "vacdate", value: `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T16:00` }; this._render();
       }
       if (a === "pause-date") {
         const d = new Date(Date.now() + 3 * 86400000); d.setHours(16, 0, 0, 0);
@@ -590,6 +609,9 @@ ha-icon { --mdc-icon-size:18px; }
 .pstat { display:flex; align-items:center; gap:12px; flex:1 1 320px; }
 .picon { width:42px; height:42px; border-radius:50%; display:grid; place-items:center; background:rgb(76,175,80); color:#fff; flex:none; }
 .pause.on .picon { background:rgb(255,152,0); }
+.pause.vac { background:linear-gradient(135deg, rgba(3,169,244,.20), rgba(3,169,244,.05)); border-color:rgba(3,169,244,.45); }
+.pause.vac .picon { background:rgb(3,169,244); }
+.pt2.away { display:flex; align-items:center; gap:4px; color:rgb(3,169,244); } .pt2.away ha-icon { --mdc-icon-size:15px; }
 .picon ha-icon { --mdc-icon-size:24px; }
 .pt1 { font-size:1.1em; font-weight:600; } .pt2 { color:var(--secondary-text-color); font-size:.9em; }
 .pchips { display:flex; flex-wrap:wrap; align-items:center; gap:8px; }

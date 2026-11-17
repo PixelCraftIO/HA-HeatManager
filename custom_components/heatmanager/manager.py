@@ -10,7 +10,14 @@ from typing import Any
 import unicodedata
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import ATTR_ENTITY_ID, ATTR_TEMPERATURE, STATE_ON, STATE_UNAVAILABLE, STATE_UNKNOWN
+from homeassistant.const import (
+    ATTR_ENTITY_ID,
+    ATTR_TEMPERATURE,
+    STATE_HOME,
+    STATE_ON,
+    STATE_UNAVAILABLE,
+    STATE_UNKNOWN,
+)
 from homeassistant.core import CALLBACK_TYPE, Event, EventStateChangedData, HomeAssistant, callback
 from homeassistant.helpers import area_registry as ar, issue_registry as ir
 from homeassistant.helpers.dispatcher import async_dispatcher_send
@@ -27,25 +34,32 @@ from .const import (
     ASSIGN_FROST,
     ASSIGN_MANUAL,
     CONF_AREA,
+    CONF_AWAY_DELAY,
+    CONF_AWAY_TEMP,
     CONF_CLIMATES,
     CONF_FROST_TEMP,
+    CONF_PRESENCE,
     CONF_ROOM_ID,
     CONF_ROOM_NAME,
     CONF_ROOMS,
     CONF_WINDOW_DELAY,
     CONF_WINDOWS,
+    DEFAULT_AWAY_DELAY,
+    DEFAULT_AWAY_TEMP,
     DEFAULT_BASE_TEMP,
     DEFAULT_FROST_TEMP,
     DEFAULT_WINDOW_DELAY,
     DOMAIN,
     PROBLEM_NOT_ACCEPTING,
     PROBLEM_UNAVAILABLE,
+    REASON_AWAY,
     REASON_FROST,
     REASON_MANUAL,
     REASON_OVERRIDE,
     REASON_PAUSED,
     REASON_PROFILE_BASE,
     REASON_PROFILE_BLOCK,
+    REASON_VACATION,
     REASON_WINDOW,
     RECHECK_INTERVAL_MIN,
     RETRY_DELAYS,
@@ -120,6 +134,10 @@ class HeatManager:
         self._unsubs: list[CALLBACK_TYPE] = []
         self._boundary_unsub: CALLBACK_TYPE | None = None
         self._pause_unsub: CALLBACK_TYPE | None = None
+        self.vacation_until: datetime | None = None
+        self._vacation_unsub: CALLBACK_TYPE | None = None
+        self.away = False
+        self._away_timer: CALLBACK_TYPE | None = None
 
     # ------------------------------------------------------------------ setup
     @property
@@ -129,6 +147,19 @@ class HeatManager:
     @property
     def window_delay(self) -> int:
         return int(self.entry.options.get(CONF_WINDOW_DELAY, DEFAULT_WINDOW_DELAY))
+
+    @property
+    def presence_entities(self) -> list[str]:
+        return list(self.entry.options.get(CONF_PRESENCE) or [])
+
+    @property
+    def away_temp(self) -> float:
+        return float(self.entry.options.get(CONF_AWAY_TEMP, DEFAULT_AWAY_TEMP))
+
+    @property
+    def away_delay(self) -> int:
+        """Minutes everybody must be gone before lowering."""
+        return int(self.entry.options.get(CONF_AWAY_DELAY, DEFAULT_AWAY_DELAY))
 
     async def async_load(self) -> None:
         """Load rooms from options and profiles/assignments from storage."""
@@ -154,6 +185,10 @@ class HeatManager:
         self.pause_until = dt_util.parse_datetime(until) if until else None
         if self.pause_active and self.pause_until and self.pause_until <= dt_util.now():
             self.pause_active, self.pause_until = False, None
+        vacation = (data.get("vacation") or {}).get("until")
+        self.vacation_until = dt_util.parse_datetime(vacation) if vacation else None
+        if self.vacation_until and self.vacation_until <= dt_util.now():
+            self.vacation_until = None
         now = dt_util.now()
         for room_id, raw in (data.get("overrides") or {}).items():
             until = dt_util.parse_datetime(raw["until"]) if raw.get("until") else None
@@ -180,7 +215,13 @@ class HeatManager:
         for room in self.rooms.values():
             if self._any_window_open(room):
                 self.runtime[room.id].window_open = True
+        if self.presence_entities:
+            self._unsubs.append(
+                async_track_state_change_event(self.hass, self.presence_entities, self._on_presence_event)
+            )
+            self.away = self._nobody_home()
         self._schedule_pause_end()
+        self._schedule_vacation_end()
         # start clean: problems that still exist are found again
         for entity_id in climates:
             ir.async_delete_issue(self.hass, DOMAIN, f"thermostat_{entity_id}")
@@ -198,6 +239,12 @@ class HeatManager:
         if self._pause_unsub:
             self._pause_unsub()
             self._pause_unsub = None
+        if self._vacation_unsub:
+            self._vacation_unsub()
+            self._vacation_unsub = None
+        if self._away_timer:
+            self._away_timer()
+            self._away_timer = None
         for rt in self.runtime.values():
             if rt.window_timer:
                 rt.window_timer()
@@ -225,6 +272,7 @@ class HeatManager:
                 "active": self.pause_active,
                 "until": self.pause_until.isoformat() if self.pause_until else None,
             },
+            "vacation": {"until": self.vacation_until.isoformat() if self.vacation_until else None},
         }
 
     # -------------------------------------------------------------- computing
@@ -238,16 +286,21 @@ class HeatManager:
         return self._plan(room, now)
 
     def _plan(self, room: Room, now: datetime) -> tuple[float | None, str]:
-        """Target without window and override: pause, frost, manual or profile."""
+        """Target without window and override: vacation, pause, frost, manual or profile (lowered when away)."""
+        assignment = self.assignments.get(room.id, ASSIGN_MANUAL)
+        controlled = assignment == ASSIGN_FROST or assignment in self.profiles
+        if controlled and self.vacation_until is not None and self.vacation_until > now:
+            return self.frost_temp, REASON_VACATION
         if self.pause_active:
             return None, REASON_PAUSED
-        assignment = self.assignments.get(room.id, ASSIGN_MANUAL)
         if assignment == ASSIGN_FROST:
             return self.frost_temp, REASON_FROST
         profile = self.profiles.get(assignment)
         if profile is None:
             return None, REASON_MANUAL
         temp, in_block = profile_target(profile, now)
+        if self.away and temp > self.away_temp:
+            return self.away_temp, REASON_AWAY
         return temp, REASON_PROFILE_BLOCK if in_block else REASON_PROFILE_BASE
 
     @callback
@@ -580,6 +633,69 @@ class HeatManager:
         when, _ = next_target(profile, now or dt_util.now())
         return when
 
+    # ------------------------------------------------------- vacation, presence
+    @callback
+    def set_vacation(self, until: datetime | None) -> None:
+        """Frost protection for all controlled rooms until a moment (None ends it)."""
+        if until is not None and until <= dt_util.now():
+            raise ValueError("end must be in the future")
+        ended = self.vacation_until is not None and until is None
+        self.vacation_until = until
+        self._schedule_vacation_end()
+        self._save()
+        if ended:
+            for rt in self.runtime.values():
+                rt.target = None
+            self.evaluate(force=True)
+        else:
+            self.evaluate()
+
+    @callback
+    def _schedule_vacation_end(self) -> None:
+        if self._vacation_unsub:
+            self._vacation_unsub()
+            self._vacation_unsub = None
+        if self.vacation_until:
+            self._vacation_unsub = async_track_point_in_time(
+                self.hass, callback(lambda _now: self.set_vacation(None)), self.vacation_until
+            )
+
+    def _nobody_home(self) -> bool:
+        """True when every presence entity is known and away."""
+        if not self.presence_entities:
+            return False
+        for entity_id in self.presence_entities:
+            st = self.hass.states.get(entity_id)
+            if st is None or st.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
+                return False  # unsure: rather keep it warm
+            if st.state in (STATE_HOME, STATE_ON):
+                return False
+        return True
+
+    @callback
+    def _on_presence_event(self, _event: Event[EventStateChangedData]) -> None:
+        if not self._nobody_home():
+            if self._away_timer:
+                self._away_timer()
+                self._away_timer = None
+            if self.away:
+                _LOGGER.debug("Somebody is home again")
+                self.away = False
+                self.evaluate()
+            return
+        if self.away or self._away_timer:
+            return
+
+        @callback
+        def _gone(_now: datetime) -> None:
+            self._away_timer = None
+            if self._nobody_home():
+                _LOGGER.debug("Nobody home, lowering to %.1f °C", self.away_temp)
+                self.away = True
+                self.evaluate()
+
+        self._away_timer = async_call_later(self.hass, self.away_delay * 60, _gone)
+
     # --------------------------------------------------------------- profiles
     @callback
     def save_profile(self, data: dict[str, Any], profile_id: str | None = None) -> str:
@@ -683,6 +799,12 @@ class HeatManager:
             "pause": {
                 "active": self.pause_active,
                 "until": self.pause_until.isoformat() if self.pause_until else None,
+            },
+            "vacation": {"until": self.vacation_until.isoformat() if self.vacation_until else None},
+            "presence": {
+                "configured": bool(self.presence_entities),
+                "away": self.away,
+                "away_temp": self.away_temp,
             },
             "settings": {"frost_temp": self.frost_temp, "window_delay": self.window_delay},
         }
