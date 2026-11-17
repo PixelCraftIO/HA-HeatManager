@@ -26,7 +26,7 @@ class HeatManagerEntity(Entity):
             self._attr_device_info = DeviceInfo(
                 identifiers={(DOMAIN, entry_id)},
                 name=NAME,
-                manufacturer="PixelCraftIO",
+                manufacturer="PixelDevIO",
                 model="HeatManager",
                 sw_version=VERSION,
                 entry_type=DeviceEntryType.SERVICE,
@@ -36,7 +36,7 @@ class HeatManagerEntity(Entity):
             self._attr_device_info = DeviceInfo(
                 identifiers={(DOMAIN, f"{entry_id}_{room.id}")},
                 name=f"{NAME} {room.name}",
-                manufacturer="PixelCraftIO",
+                manufacturer="PixelDevIO",
                 model="HeatManager room",
                 suggested_area=room.area_name,
                 entry_type=DeviceEntryType.SERVICE,

@@ -18,7 +18,7 @@ Weekly heating profiles with a visual 7‑day grid, profiles you assign to rooms
 
 ### HACS / Marketplace (custom repository)
 
-1. Marketplace (HACS) → ⋮ → **Custom repositories** → add `https://github.com/PixelCraftIO/HA-HeatManager`, category **Integration**.
+1. Marketplace (HACS) → ⋮ → **Custom repositories** → add `https://github.com/PixelDevIO/HA-HeatManager`, category **Integration**.
 2. Install **HeatManager** and restart Home Assistant.
 
 ### Manual
