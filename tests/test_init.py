@@ -352,14 +352,12 @@ async def test_config_and_options_flow(hass: HomeAssistant) -> None:
             "sensor_max_age": 30,
             "upper_limit": 1.5,
             "control": "external",
-            "sensor.bath_a": 1,
-            "sensor.bath_b": 3,
+            "weight_1": 1,
+            "weight_2": 3,
         },
     )
     assert result["step_id"] == "room_external"
-    result = await hass.config_entries.options.async_configure(
-        result["flow_id"], {"climate.bath": "number.bath_external"}
-    )
+    result = await hass.config_entries.options.async_configure(result["flow_id"], {"input_1": "number.bath_external"})
     assert result["type"] == "create_entry"
     room = entry.options["rooms"][0]
     assert room["temp_sensors"] == ["sensor.bath_a", "sensor.bath_b"]

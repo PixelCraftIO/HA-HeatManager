@@ -99,14 +99,24 @@
       },
       "room_temperature": {
         "title": "Room temperature of {room}",
-        "description": "How HeatManager forms the room's actual temperature from its sensors and how the thermostats use it. Sensors that are unavailable or have not reported for longer than the maximum age are ignored; without any valid sensor the thermostats' own readings are used. With several sensors, each gets a weight below (0 = not counted, only used for the upper limit).",
+        "description": "How HeatManager forms the room's actual temperature from its sensors and how the thermostats use it. Sensors that are unavailable or have not reported for longer than the maximum age are ignored; without any valid sensor the thermostats' own readings are used. With several sensors, each gets a weight below (0 = not counted, only used for the upper limit).{weights}",
         "data": {
           "temp_method": "Calculation",
           "primary_sensor": "Main sensor",
           "window_near_sensors": "Sensors near a window",
           "sensor_max_age": "Maximum age",
           "upper_limit": "Upper limit",
-          "control": "Control"
+          "control": "Control",
+          "weight_1": "Weight of sensor 1",
+          "weight_2": "Weight of sensor 2",
+          "weight_3": "Weight of sensor 3",
+          "weight_4": "Weight of sensor 4",
+          "weight_5": "Weight of sensor 5",
+          "weight_6": "Weight of sensor 6",
+          "weight_7": "Weight of sensor 7",
+          "weight_8": "Weight of sensor 8",
+          "weight_9": "Weight of sensor 9",
+          "weight_10": "Weight of sensor 10"
         },
         "data_description": {
           "temp_method": "Mean (weighted), lowest, highest, or a main sensor with the others as fallback.",
@@ -119,7 +129,19 @@
       },
       "room_external": {
         "title": "External temperature inputs in {room}",
-        "description": "For each thermostat, the number entity that takes an external room temperature (often called 'External temperature'). HeatManager sends the room temperature there at least every 15 minutes. Thermostats without one are compensated instead."
+        "description": "For each thermostat, the number entity that takes an external room temperature (often called 'External temperature'). HeatManager sends the room temperature there at least every 15 minutes. Thermostats without one are compensated instead.\n\n{thermostats}",
+        "data": {
+          "input_1": "Input of thermostat 1",
+          "input_2": "Input of thermostat 2",
+          "input_3": "Input of thermostat 3",
+          "input_4": "Input of thermostat 4",
+          "input_5": "Input of thermostat 5",
+          "input_6": "Input of thermostat 6",
+          "input_7": "Input of thermostat 7",
+          "input_8": "Input of thermostat 8",
+          "input_9": "Input of thermostat 9",
+          "input_10": "Input of thermostat 10"
+        }
       }
     },
     "error": {
