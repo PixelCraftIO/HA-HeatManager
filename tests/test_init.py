@@ -8,6 +8,7 @@ from unittest.mock import patch
 
 from freezegun.api import FrozenDateTimeFactory
 from homeassistant.core import HomeAssistant, ServiceCall
+from homeassistant.helpers import issue_registry as ir
 from homeassistant.setup import async_setup_component
 from homeassistant.util import dt as dt_util
 import pytest
@@ -396,6 +397,48 @@ async def test_override_survives_reload_and_websocket(hass: HomeAssistant, setup
     msg = await client.receive_json()
     assert msg["success"], msg
     assert reloaded.overrides == {}
+
+
+async def test_thermostat_problem_creates_repair_issue(
+    hass: HomeAssistant, setup, freezer: FrozenDateTimeFactory
+) -> None:
+    manager, calls, apply, _ = setup
+    pid = manager.save_profile({"name": "Kinder", "base_temp": 17, "week": WEEK_ALL_DAY})
+    manager.set_assignment("r1", pid)
+    await hass.async_block_till_done()
+    registry = ir.async_get(hass)
+    for seconds in (61, 121, 301, 301):  # thermostat stays at 18 °C
+        freezer.tick(timedelta(seconds=seconds))
+        async_fire_time_changed(hass)
+        await hass.async_block_till_done()
+    assert len(calls) == 4
+    issue = registry.async_get_issue(DOMAIN, f"thermostat_{CLIMATE}")
+    assert issue is not None and issue.translation_key == "thermostat_not_accepting"
+    info = manager.room_info(manager.rooms["r1"])
+    assert info["problems"] == [{"entity_id": CLIMATE, "kind": "not_accepting"}]
+    assert hass.states.get("sensor.heatmanager_kids_target_temperature").attributes["problems"] == {
+        CLIMATE: "not_accepting"
+    }
+
+    apply(calls[-1])  # works again
+    await hass.async_block_till_done()
+    assert registry.async_get_issue(DOMAIN, f"thermostat_{CLIMATE}") is None
+    assert manager.room_info(manager.rooms["r1"])["problems"] == []
+
+
+async def test_long_unavailable_thermostat_reported(hass: HomeAssistant, setup, freezer: FrozenDateTimeFactory) -> None:
+    manager, _, _, _ = setup
+    hass.states.async_set(CLIMATE, "unavailable")
+    registry = ir.async_get(hass)
+    for _ in range(14):
+        freezer.tick(timedelta(minutes=5))
+        async_fire_time_changed(hass)
+        await hass.async_block_till_done()
+    issue = registry.async_get_issue(DOMAIN, f"thermostat_{CLIMATE}")
+    assert issue is not None and issue.translation_key == "thermostat_unavailable"
+    climate_state(hass, 18)
+    await hass.async_block_till_done()
+    assert registry.async_get_issue(DOMAIN, f"thermostat_{CLIMATE}") is None
 
 
 async def test_setup_component_registers_services(hass: HomeAssistant) -> None:

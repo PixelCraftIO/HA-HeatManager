@@ -4,7 +4,7 @@ from __future__ import annotations
 
 DOMAIN = "heatmanager"
 NAME = "HeatManager"
-VERSION = "0.2.0"
+VERSION = "0.3.0"
 
 CONF_ROOMS = "rooms"
 CONF_ROOM_ID = "id"
@@ -45,6 +45,10 @@ CARD_FILENAME = "heatmanager-card.js"
 
 # Seconds after a command before checking whether the thermostat took it
 RETRY_DELAYS = (60, 120, 300)
+# A thermostat unavailable this long is reported as a problem
+UNAVAILABLE_PROBLEM_AFTER = 3600
+PROBLEM_NOT_ACCEPTING = "not_accepting"
+PROBLEM_UNAVAILABLE = "unavailable"
 # Safety re-evaluation interval (minutes)
 RECHECK_INTERVAL_MIN = 5
 

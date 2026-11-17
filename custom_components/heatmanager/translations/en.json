@@ -167,5 +167,15 @@
         }
       }
     }
+  },
+  "issues": {
+    "thermostat_not_accepting": {
+      "title": "{thermostat} does not take its setpoint",
+      "description": "HeatManager asked **{thermostat}** (`{entity_id}`, room {room}) four times over about 13 minutes to heat to {temperature} °C, but it keeps reporting a different setpoint.\n\nCheck the device: batteries, radio connection, child lock, or an internal schedule/auto mode that overrides commands. The warning disappears as soon as the thermostat takes a setpoint again."
+    },
+    "thermostat_unavailable": {
+      "title": "{thermostat} has been unavailable for over an hour",
+      "description": "**{thermostat}** (`{entity_id}`, room {room}) has been unavailable for more than an hour, so HeatManager cannot control it.\n\nCheck batteries and the radio connection. The warning disappears as soon as the thermostat is back."
+    }
   }
 }

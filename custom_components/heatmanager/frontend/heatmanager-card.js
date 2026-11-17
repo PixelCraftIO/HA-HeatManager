@@ -1,6 +1,6 @@
 /* HeatManager card – weekly heating profiles, room assignment, pause and window state.
  * Served and auto-loaded by the HeatManager integration. */
-const VERSION = "0.2.0";
+const VERSION = "0.3.0";
 const DAYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];
 const PALETTE = ["#f4a340", "#7e8ef1", "#3fb8c9", "#8bc34a", "#e57373", "#ba68c8", "#4db6ac", "#ffb74d"];
 const ICONS = ["mdi:radiator", "mdi:sofa", "mdi:bed", "mdi:teddy-bear", "mdi:shower", "mdi:desk", "mdi:silverware-fork-knife", "mdi:account-group", "mdi:dumbbell", "mdi:home-export-outline", "mdi:snowflake", "mdi:fire"];
@@ -33,6 +33,7 @@ const I18N = {
     noRooms: "Noch keine Räume. Lege sie unter Einstellungen › Geräte & Dienste › HeatManager › Konfigurieren an.",
     noProfiles: "Noch keine Heizprofile – lege mit „Neues Profil“ das erste an.",
     adminOnly: "Profile bearbeiten können nur Administratoren.",
+    probNotAccepting: "{n} nimmt Sollwert nicht an", probUnavailable: "{n} seit über 1 Std. nicht erreichbar", probHint: "Details unter Einstellungen › Reparaturen",
     override: "Übersteuern", overrideTitle: "{r} übersteuern", overrideFor: "Wie lange?", untilNext: "Bis zum nächsten Wechsel", untilNextAt: "Bis zum Wechsel um {t}",
     overrideActive: "{v} bis {t}", overrideEnd: "Beenden", overrideHint: "Danach folgt der Raum wieder seinem Plan.", overrideHintManual: "Danach bekommt das Thermostat wieder seinen vorherigen Wert.",
   },
@@ -61,6 +62,7 @@ const I18N = {
     noRooms: "No rooms yet. Add them under Settings › Devices & services › HeatManager › Configure.",
     noProfiles: "No heating profiles yet – create the first one with “New profile”.",
     adminOnly: "Only administrators can edit profiles.",
+    probNotAccepting: "{n} ignores its setpoint", probUnavailable: "{n} unavailable for over 1 h", probHint: "Details under Settings › Repairs",
     override: "Override", overrideTitle: "Override {r}", overrideFor: "For how long?", untilNext: "Until next change", untilNextAt: "Until the change at {t}",
     overrideActive: "{v} until {t}", overrideEnd: "End", overrideHint: "Afterwards the room follows its plan again.", overrideHintManual: "Afterwards the thermostat gets its previous setpoint back.",
   },
@@ -239,9 +241,14 @@ class HeatManagerCard extends HTMLElement {
       const next = r.override
         ? `<small class="ovr"><ha-icon icon="mdi:thermometer-alert"></ha-icon>${this._t("overrideActive", { v: this._fmtT(r.override.temp) + "°", t: r.override.until ? esc(this._fmtDate(r.override.until)) : "…" })}</small>`
         : r.next_change && r.next_temp != null ? `<small class="next">${this._t("next", { t: esc(this._fmtDate(r.next_change)), v: this._fmtT(r.next_temp) + "°" })}</small>` : "";
-      return `<div class="room ${win ? "open" : ""}">
+      const probs = (r.problems || []).map((pr) => {
+        const st = h.states[pr.entity_id];
+        const n = r.climates.length > 1 ? ((st && st.attributes.friendly_name) || pr.entity_id) : "Thermostat";
+        return `<small class="prob" title="${this._t("probHint")}"><ha-icon icon="mdi:alert-circle"></ha-icon>${esc(this._t(pr.kind === "unavailable" ? "probUnavailable" : "probNotAccepting", { n }))}</small>`;
+      }).join("");
+      return `<div class="room ${win ? "open" : ""} ${probs ? "problem" : ""}">
         <div class="rdot" style="background:${this._pcolor(r.profile)}"></div>
-        <button class="rname" data-more="${esc(r.climates[0])}"><span>${esc(r.name)}${unav ? ` <small class="warn">${this._t("unreachable")}</small>` : ""}${win ? ` <small class="win"><ha-icon icon="mdi:window-open-variant"></ha-icon>${this._t("windowOpen")}</small>` : ""}</span>${next}</button>
+        <button class="rname" data-more="${esc(r.climates[0])}"><span>${esc(r.name)}${unav ? ` <small class="warn">${this._t("unreachable")}</small>` : ""}${win ? ` <small class="win"><ha-icon icon="mdi:window-open-variant"></ha-icon>${this._t("windowOpen")}</small>` : ""}</span>${probs}${next}</button>
         <div class="rtemp"><span>${cur != null ? this._fmtT(cur) + " °C" : "–"}</span><ha-icon icon="mdi:arrow-right-thin"></ha-icon><b style="color:${tgt != null ? tempColor(tgt) : "inherit"}">${tgt != null ? this._fmtT(tgt) + " °C" : "–"}</b></div>
         <button class="ico ${r.override ? "act" : ""}" data-ovr="${esc(r.id)}" title="${this._t("override")}"><ha-icon icon="mdi:thermometer-chevron-up"></ha-icon></button>
         <select data-room="${esc(r.id)}">${options.map(([v, l]) => `<option value="${esc(v)}" ${v === r.profile ? "selected" : ""}>${esc(l)}</option>`).join("")}</select>
@@ -646,6 +653,8 @@ ha-icon { --mdc-icon-size:18px; }
 .rname small.warn { color:var(--warning-color, #ff9800); }
 .rname small.win { color:#4fc3f7; font-weight:500; display:inline-flex; align-items:center; gap:3px; margin-left:4px; } .rname small.win ha-icon { --mdc-icon-size:15px; }
 .rname small.next { color:var(--secondary-text-color); font-size:.78em; }
+.room.problem { box-shadow:inset 0 0 0 1px color-mix(in srgb, var(--error-color, #db4437) 70%, transparent); }
+.rname small.prob { color:var(--error-color, #db4437); font-size:.78em; display:inline-flex; align-items:center; gap:3px; } .rname small.prob ha-icon { --mdc-icon-size:14px; }
 .rname small.ovr { color:var(--warning-color, #ff9800); font-size:.78em; display:inline-flex; align-items:center; gap:3px; } .rname small.ovr ha-icon { --mdc-icon-size:14px; }
 .ico.act { color:var(--warning-color, #ff9800); background:color-mix(in srgb, var(--warning-color, #ff9800) 18%, transparent); }
 .rtemp { display:flex; align-items:center; gap:2px; font-size:.9em; color:var(--secondary-text-color); white-space:nowrap; } .rtemp b { font-weight:600; }
