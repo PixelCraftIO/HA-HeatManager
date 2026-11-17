@@ -23,6 +23,8 @@ def async_register_websocket(hass: HomeAssistant) -> None:
         ws_save_profile,
         ws_delete_profile,
         ws_set_room_profile,
+        ws_room_override,
+        ws_room_clear_override,
         ws_pause,
         ws_resume,
     ):
@@ -121,6 +123,49 @@ def ws_set_room_profile(hass: HomeAssistant, connection: websocket_api.ActiveCon
         manager.set_assignment(msg["room_id"], msg["profile"])
     except (KeyError, ValueError) as err:
         connection.send_error(msg["id"], "invalid_format", str(err))
+        return
+    connection.send_result(msg["id"])
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "heatmanager/room/override",
+        vol.Required("room_id"): str,
+        vol.Required("temp"): vol.Coerce(float),
+        vol.Exclusive("hours", "end"): vol.All(vol.Coerce(float), vol.Range(min=0.1, max=24 * 14)),
+        vol.Exclusive("until_next_change", "end"): bool,
+    }
+)
+@callback
+def ws_room_override(hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]) -> None:
+    """Hold a room at a temperature for some hours, until its next plan change, or until cleared."""
+    manager = _manager_or_error(hass, connection, msg["id"])
+    if manager is None:
+        return
+    until = dt_util.now() + timedelta(hours=msg["hours"]) if "hours" in msg else None
+    try:
+        manager.set_override(msg["room_id"], msg["temp"], until, until_next_change=msg.get("until_next_change", False))
+    except (KeyError, ValueError) as err:
+        connection.send_error(msg["id"], "invalid_format", str(err))
+        return
+    connection.send_result(msg["id"])
+
+
+@websocket_api.websocket_command(
+    {vol.Required("type"): "heatmanager/room/clear_override", vol.Required("room_id"): str}
+)
+@callback
+def ws_room_clear_override(
+    hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]
+) -> None:
+    """End a room's override."""
+    manager = _manager_or_error(hass, connection, msg["id"])
+    if manager is None:
+        return
+    try:
+        manager.clear_override(msg["room_id"])
+    except KeyError as err:
+        connection.send_error(msg["id"], "not_found", str(err))
         return
     connection.send_result(msg["id"])
 

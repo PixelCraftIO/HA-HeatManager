@@ -4,7 +4,7 @@ from __future__ import annotations
 
 DOMAIN = "heatmanager"
 NAME = "HeatManager"
-VERSION = "0.1.2"
+VERSION = "0.2.0"
 
 CONF_ROOMS = "rooms"
 CONF_ROOM_ID = "id"
@@ -31,6 +31,7 @@ REASON_FROST = "frost"
 REASON_WINDOW = "window"
 REASON_PAUSED = "paused"
 REASON_MANUAL = "manual"
+REASON_OVERRIDE = "override"
 
 DAYS = ("monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday")
 

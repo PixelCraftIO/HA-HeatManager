@@ -29,6 +29,8 @@ CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
 SERVICE_PAUSE = "pause"
 SERVICE_RESUME = "resume"
+SERVICE_OVERRIDE = "override_room"
+SERVICE_CLEAR_OVERRIDE = "clear_room_override"
 
 PAUSE_SCHEMA = vol.Schema(
     {
@@ -36,6 +38,17 @@ PAUSE_SCHEMA = vol.Schema(
         vol.Exclusive("until", "end"): cv.datetime,
     }
 )
+
+OVERRIDE_SCHEMA = vol.Schema(
+    {
+        vol.Required("room"): cv.string,
+        vol.Required("temperature"): vol.Coerce(float),
+        vol.Exclusive("duration", "end"): cv.positive_time_period,
+        vol.Exclusive("until", "end"): cv.datetime,
+        vol.Exclusive("until_next_change", "end"): cv.boolean,
+    }
+)
+CLEAR_OVERRIDE_SCHEMA = vol.Schema({vol.Required("room"): cv.string})
 
 type HeatManagerConfigEntry = ConfigEntry[HeatManager]
 
@@ -62,7 +75,30 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     async def _resume(call: ServiceCall) -> None:
         _manager(hass).set_pause(False)
 
+    async def _override(call: ServiceCall) -> None:
+        manager = _manager(hass)
+        room_id = _room_id(manager, call.data["room"])
+        until = None
+        if (duration := call.data.get("duration")) is not None:
+            until = dt_util.now() + duration
+        elif (moment := call.data.get("until")) is not None:
+            until = dt_util.as_local(
+                moment if moment.tzinfo else moment.replace(tzinfo=dt_util.get_default_time_zone())
+            )
+        try:
+            manager.set_override(
+                room_id, call.data["temperature"], until, until_next_change=call.data.get("until_next_change", False)
+            )
+        except ValueError as err:
+            raise ServiceValidationError(str(err)) from err
+
+    async def _clear_override(call: ServiceCall) -> None:
+        manager = _manager(hass)
+        manager.clear_override(_room_id(manager, call.data["room"]))
+
     hass.services.async_register(DOMAIN, SERVICE_PAUSE, _pause, schema=PAUSE_SCHEMA)
+    hass.services.async_register(DOMAIN, SERVICE_OVERRIDE, _override, schema=OVERRIDE_SCHEMA)
+    hass.services.async_register(DOMAIN, SERVICE_CLEAR_OVERRIDE, _clear_override, schema=CLEAR_OVERRIDE_SCHEMA)
     hass.services.async_register(DOMAIN, SERVICE_RESUME, _resume)
     return True
 
@@ -80,6 +116,16 @@ def _manager(hass: HomeAssistant) -> HeatManager:
         return get_manager(hass)
     except LookupError as err:
         raise ServiceValidationError("HeatManager is not set up") from err
+
+
+def _room_id(manager: HeatManager, value: str) -> str:
+    """Find a room by id or name."""
+    if value in manager.rooms:
+        return value
+    for room in manager.rooms.values():
+        if room.name.casefold() == value.strip().casefold():
+            return room.id
+    raise ServiceValidationError(f"Unknown room {value}")
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: HeatManagerConfigEntry) -> bool:

@@ -327,6 +327,77 @@ async def test_config_and_options_flow(hass: HomeAssistant) -> None:
     assert result["type"] == "abort"
 
 
+async def test_override_for_duration(hass: HomeAssistant, setup, freezer: FrozenDateTimeFactory) -> None:
+    manager, calls, apply, _ = setup
+    pid = manager.save_profile({"name": "Kinder", "base_temp": 17, "week": WEEK_ALL_DAY})
+    manager.set_assignment("r1", pid)
+    await hass.async_block_till_done()
+    apply(calls[-1])
+    await hass.services.async_call(
+        DOMAIN, "override_room", {"room": "kids", "temperature": 23, "duration": {"hours": 2}}, blocking=True
+    )
+    await hass.async_block_till_done()
+    assert last_temp(calls) == 23
+    sensor = hass.states.get("sensor.heatmanager_kids_target_temperature")
+    assert sensor.attributes["reason"] == "override"
+    assert sensor.attributes["override_until"] is not None
+    apply(calls[-1])
+
+    freezer.tick(timedelta(hours=2, seconds=1))
+    async_fire_time_changed(hass)
+    await hass.async_block_till_done()
+    assert last_temp(calls) == 21
+    assert "r1" not in manager.overrides
+
+
+async def test_override_until_next_change(hass: HomeAssistant, setup, freezer: FrozenDateTimeFactory) -> None:
+    manager, calls, apply, _ = setup
+    pid = manager.save_profile({"name": "Kinder", "base_temp": 17, "week": WEEK_ALL_DAY})
+    manager.set_assignment("r1", pid)
+    await hass.async_block_till_done()
+    apply(calls[-1])
+    until = manager.set_override("r1", 19, until_next_change=True)
+    await hass.async_block_till_done()
+    assert until == dt_util.parse_datetime("2026-11-17T22:00:00+01:00")
+    assert last_temp(calls) == 19
+    apply(calls[-1])
+    freezer.move_to(dt_util.parse_datetime("2026-11-17T22:00:01+01:00"))
+    async_fire_time_changed(hass)
+    await hass.async_block_till_done()
+    assert last_temp(calls) == 17  # the plan's next temperature
+
+
+async def test_override_manual_room_restores(hass: HomeAssistant, setup) -> None:
+    manager, calls, apply, _ = setup
+    climate_state(hass, 19.5)
+    with pytest.raises(ValueError):
+        manager.set_override("r1", 22, until_next_change=True)  # manual room has no plan
+    manager.set_override("r1", 22)
+    await hass.async_block_till_done()
+    assert last_temp(calls) == 22
+    apply(calls[-1])
+    manager.clear_override("r1")
+    await hass.async_block_till_done()
+    assert last_temp(calls) == 19.5
+
+
+async def test_override_survives_reload_and_websocket(hass: HomeAssistant, setup, hass_ws_client) -> None:
+    manager, calls, _, entry = setup
+    client = await hass_ws_client(hass)
+    await client.send_json({"id": 1, "type": "heatmanager/room/override", "room_id": "r1", "temp": 22.5, "hours": 3})
+    msg = await client.receive_json()
+    assert msg["success"], msg
+    await hass.config_entries.async_reload(entry.entry_id)
+    await hass.async_block_till_done()
+    reloaded: HeatManager = entry.runtime_data
+    assert reloaded.overrides["r1"]["temp"] == 22.5
+    assert reloaded.room_info(reloaded.rooms["r1"])["override"]["until"] is not None
+    await client.send_json({"id": 2, "type": "heatmanager/room/clear_override", "room_id": "r1"})
+    msg = await client.receive_json()
+    assert msg["success"], msg
+    assert reloaded.overrides == {}
+
+
 async def test_setup_component_registers_services(hass: HomeAssistant) -> None:
     assert await async_setup_component(hass, DOMAIN, {})
     assert hass.services.has_service(DOMAIN, "pause")

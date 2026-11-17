@@ -99,7 +99,8 @@
               "frost": "Frostschutz",
               "window": "Fenster offen",
               "paused": "Pausiert",
-              "manual": "Manuell"
+              "manual": "Manuell",
+              "override": "Übersteuert"
             }
           }
         }
@@ -129,6 +130,42 @@
     "resume": {
       "name": "Heizplan fortsetzen",
       "description": "Beendet die Pause und wendet die Heizprofile wieder an."
+    },
+    "override_room": {
+      "name": "Raumtemperatur übersteuern",
+      "description": "Hält einen Raum eine Zeit lang auf einer Temperatur und kehrt danach zum Plan zurück.",
+      "fields": {
+        "room": {
+          "name": "Raum",
+          "description": "Name oder ID des HeatManager-Raums."
+        },
+        "temperature": {
+          "name": "Temperatur",
+          "description": "Zu haltende Temperatur."
+        },
+        "duration": {
+          "name": "Dauer",
+          "description": "Wie lange sie gehalten wird."
+        },
+        "until": {
+          "name": "Bis",
+          "description": "Wann der Raum zum Plan zurückkehrt."
+        },
+        "until_next_change": {
+          "name": "Bis zum nächsten Wechsel",
+          "description": "Halten, bis das Profil des Raums die Temperatur das nächste Mal ändert."
+        }
+      }
+    },
+    "clear_room_override": {
+      "name": "Übersteuerung beenden",
+      "description": "Der Raum folgt sofort wieder seinem Plan.",
+      "fields": {
+        "room": {
+          "name": "Raum",
+          "description": "Name oder ID des HeatManager-Raums."
+        }
+      }
     }
   }
 }
