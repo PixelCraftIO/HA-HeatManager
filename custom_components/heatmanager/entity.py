@@ -35,7 +35,8 @@ class HeatManagerEntity(Entity):
             self._attr_unique_id = f"{entry_id}_{room.id}_{key}"
             self._attr_device_info = DeviceInfo(
                 identifiers={(DOMAIN, f"{entry_id}_{room.id}")},
-                name=f"{NAME} {room.name}",
+                # short names: "Kids Heating profile" instead of "HeatManager Kids Heating profile"
+                name=room.name,
                 manufacturer="PixelDevIO",
                 model="HeatManager room",
                 suggested_area=room.area_name,

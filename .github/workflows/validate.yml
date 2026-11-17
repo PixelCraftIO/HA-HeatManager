@@ -18,7 +18,7 @@ jobs:
       - uses: hacs/action@main
         with:
           category: integration
-          # brands entry not yet submitted
+          # brand images ship in custom_components/heatmanager/brand (HA 2026.3+); no brands-repo entry yet
           ignore: brands
 
   tests:

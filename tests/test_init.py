@@ -15,6 +15,7 @@ import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry, async_fire_time_changed, async_mock_service
 
 from custom_components.heatmanager.const import DOMAIN
+from custom_components.heatmanager.diagnostics import async_get_config_entry_diagnostics
 from custom_components.heatmanager.manager import HeatManager
 
 CLIMATE = "climate.kids"
@@ -69,7 +70,7 @@ async def test_new_room_is_manual_and_untouched(hass: HomeAssistant, setup) -> N
     manager, calls, _, _ = setup
     assert manager.assignments["r1"] == "manual"
     assert calls == []
-    assert hass.states.get("select.heatmanager_kids_heating_profile").state == "Manual"
+    assert hass.states.get("select.kids_heating_profile").state == "Manual"
     assert hass.states.get("switch.heatmanager_schedule_paused").state == "off"
 
 
@@ -79,7 +80,7 @@ async def test_profile_assignment_sends_target(hass: HomeAssistant, setup) -> No
     manager.set_assignment("r1", pid)
     await hass.async_block_till_done()
     assert last_temp(calls) == 21
-    sensor = hass.states.get("sensor.heatmanager_kids_target_temperature")
+    sensor = hass.states.get("sensor.kids_target_temperature")
     assert float(sensor.state) == 21
     assert sensor.attributes["reason"] == "profile_block"
 
@@ -130,7 +131,7 @@ async def test_window_open_and_close(hass: HomeAssistant, setup, freezer: Frozen
     async_fire_time_changed(hass)
     await hass.async_block_till_done()
     assert last_temp(calls) == 5
-    assert hass.states.get("sensor.heatmanager_kids_target_temperature").attributes["window_open"] is True
+    assert hass.states.get("sensor.kids_target_temperature").attributes["window_open"] is True
     apply(calls[-1])
 
     hass.states.async_set(WINDOW, "off")
@@ -234,7 +235,7 @@ async def test_select_entity_changes_assignment(hass: HomeAssistant, setup) -> N
     await hass.services.async_call(
         "select",
         "select_option",
-        {"entity_id": "select.heatmanager_kids_heating_profile", "option": "Kinder"},
+        {"entity_id": "select.kids_heating_profile", "option": "Kinder"},
         blocking=True,
     )
     await hass.async_block_till_done()
@@ -321,7 +322,7 @@ async def test_config_and_options_flow(hass: HomeAssistant) -> None:
     assert result["type"] == "create_entry"
     await hass.async_block_till_done()
     assert [r["name"] for r in entry.options["rooms"]] == ["Bad"]
-    assert hass.states.get("select.heatmanager_bad_heating_profile") is not None
+    assert hass.states.get("select.bad_heating_profile") is not None
 
     # second instance not allowed
     result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": "user"})
@@ -339,7 +340,7 @@ async def test_override_for_duration(hass: HomeAssistant, setup, freezer: Frozen
     )
     await hass.async_block_till_done()
     assert last_temp(calls) == 23
-    sensor = hass.states.get("sensor.heatmanager_kids_target_temperature")
+    sensor = hass.states.get("sensor.kids_target_temperature")
     assert sensor.attributes["reason"] == "override"
     assert sensor.attributes["override_until"] is not None
     apply(calls[-1])
@@ -416,9 +417,7 @@ async def test_thermostat_problem_creates_repair_issue(
     assert issue is not None and issue.translation_key == "thermostat_not_accepting"
     info = manager.room_info(manager.rooms["r1"])
     assert info["problems"] == [{"entity_id": CLIMATE, "kind": "not_accepting"}]
-    assert hass.states.get("sensor.heatmanager_kids_target_temperature").attributes["problems"] == {
-        CLIMATE: "not_accepting"
-    }
+    assert hass.states.get("sensor.kids_target_temperature").attributes["problems"] == {CLIMATE: "not_accepting"}
 
     apply(calls[-1])  # works again
     await hass.async_block_till_done()
@@ -471,7 +470,7 @@ async def test_away_lowers_profile_rooms(hass: HomeAssistant, setup, freezer: Fr
     async_fire_time_changed(hass)
     await hass.async_block_till_done()
     assert last_temp(calls) == 16
-    assert hass.states.get("sensor.heatmanager_kids_target_temperature").attributes["reason"] == "away"
+    assert hass.states.get("sensor.kids_target_temperature").attributes["reason"] == "away"
     assert manager.as_dict()["presence"] == {"configured": True, "away": True, "away_temp": 16.0}
     apply(calls[-1])
 
@@ -490,7 +489,7 @@ async def test_vacation(hass: HomeAssistant, setup, freezer: FrozenDateTimeFacto
     await hass.services.async_call(DOMAIN, "start_vacation", {"until": "2026-11-20 16:00:00"}, blocking=True)
     await hass.async_block_till_done()
     assert last_temp(calls) == 5
-    assert hass.states.get("sensor.heatmanager_kids_target_temperature").attributes["reason"] == "vacation"
+    assert hass.states.get("sensor.kids_target_temperature").attributes["reason"] == "vacation"
     apply(calls[-1])
 
     await hass.config_entries.async_reload(entry.entry_id)  # survives restarts
@@ -546,6 +545,17 @@ async def test_today_timeline_and_profile_edit(hass: HomeAssistant, setup) -> No
     assert manager.assignments["r1"] == pid
     with pytest.raises(ValueError):
         manager.save_profile({**manager.profiles[pid], "color": "red"}, pid)
+
+
+async def test_diagnostics(hass: HomeAssistant, setup) -> None:
+    manager, _, _, entry = setup
+    manager.save_profile({"name": "Kinder", "base_temp": 17, "week": WEEK_ALL_DAY})
+    manager.set_assignment("r1", "kinder")
+    diag = await async_get_config_entry_diagnostics(hass, entry)
+    assert diag["rooms"][0]["name"] == "Kids"
+    assert diag["rooms"][0]["climate_states"][CLIMATE]["attributes"]["temperature"] == 18
+    assert diag["profiles"]["kinder"]["base_temp"] == 17
+    assert diag["options"]["presence_entities"] == "0 entities"
 
 
 async def test_setup_component_registers_services(hass: HomeAssistant) -> None:
