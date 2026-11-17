@@ -167,5 +167,15 @@
         }
       }
     }
+  },
+  "issues": {
+    "thermostat_not_accepting": {
+      "title": "{thermostat} nimmt den Sollwert nicht an",
+      "description": "HeatManager hat **{thermostat}** (`{entity_id}`, Raum {room}) innerhalb von etwa 13 Minuten viermal {temperature} °C geschickt, das Gerät meldet aber weiter einen anderen Sollwert.\n\nBitte das Gerät prüfen: Batterien, Funkverbindung, Kindersicherung oder ein eigener Wochenplan bzw. Auto-Modus, der Befehle überschreibt. Der Hinweis verschwindet, sobald das Thermostat wieder einen Sollwert annimmt."
+    },
+    "thermostat_unavailable": {
+      "title": "{thermostat} ist seit über einer Stunde nicht erreichbar",
+      "description": "**{thermostat}** (`{entity_id}`, Raum {room}) ist seit mehr als einer Stunde nicht erreichbar, HeatManager kann es nicht steuern.\n\nBitte Batterien und Funkverbindung prüfen. Der Hinweis verschwindet, sobald das Thermostat wieder da ist."
+    }
   }
 }

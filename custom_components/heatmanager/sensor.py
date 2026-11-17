@@ -45,5 +45,6 @@ class RoomTargetSensor(HeatManagerEntity, SensorEntity):
             "window_open": info["window_open"],
             "next_change": info["next_change"],
             "next_temperature": info["next_temp"],
+            "problems": {p["entity_id"]: p["kind"] for p in info["problems"]} or None,
             "override_until": info["override"]["until"] if info["override"] else None,
         }

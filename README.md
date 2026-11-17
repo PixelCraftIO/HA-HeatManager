@@ -13,6 +13,7 @@ Weekly heating profiles with a visual 7‑day grid, profiles you assign to rooms
 - **Pause**: for 2 h, 8 h, 24 h, a week or until a date – thermostats keep their current temperature, the schedule resumes automatically.
 - **Manual changes are respected** until the next change in the profile.
 - **Reliable sending**: if a thermostat does not confirm a new setpoint, it is sent again (after 1, 2 and 5 minutes); thermostats that come back online get the current target.
+- **Thermostat problems are reported**: if a thermostat still ignores its setpoint after the retries, or is unavailable for over an hour, the card marks the room and Home Assistant shows a repair notice (Settings → Repairs). Both disappear once the device works again.
 - Works with any `climate` entity (Homematic IP, Zigbee2MQTT, ZHA, Tado, …). No cloud, no YAML.
 
 ## Installation
@@ -48,7 +49,7 @@ Editing profiles requires an administrator account; everybody can assign profile
 | Entity | Description |
 |---|---|
 | `select.heatmanager_<room>_heating_profile` | Profile of the room (incl. *Frost protection* and *Manual*) |
-| `sensor.heatmanager_<room>_target_temperature` | Target HeatManager sets; attributes `reason`, `profile`, `window_open`, `next_change`, `next_temperature` |
+| `sensor.heatmanager_<room>_target_temperature` | Target HeatManager sets; attributes `reason`, `profile`, `window_open`, `next_change`, `next_temperature`, `override_until`, `problems` |
 | `switch.heatmanager_schedule_paused` | On while paused; attribute `until` |
 
 ## Actions
@@ -91,7 +92,7 @@ Put thermostats into a manual/heat mode so their internal week program does not 
 
 HeatManager steuert Thermostate über **Heizprofile mit Wochenraster**. Zeitblöcke werden mit der Maus ins Raster gezogen (auf dem Tablet: kurz gedrückt halten, dann ziehen; normales Wischen scrollt), jeder Block bekommt eine eigene Temperatur, außerhalb gilt die Grundtemperatur. Räume (ein oder mehrere Thermostate, optional Fensterkontakte) bekommen ein Profil, *Frostschutz* oder *Manuell*.
 
-**Fenster offen** → nach 30 s Frostschutz, beim Schließen zurück zum Profil bzw. zur vorherigen Temperatur. **Raum übersteuern**: über das Thermometer-Symbol am Raum z. B. 2 Std. auf 22 °C oder bis zum nächsten Wechsel, danach zurück zum Plan. **Pause** für Stunden, eine Woche oder bis zu einem Datum. Manuelle Änderungen am Thermostat gelten bis zum nächsten Wechsel im Profil.
+**Fenster offen** → nach 30 s Frostschutz, beim Schließen zurück zum Profil bzw. zur vorherigen Temperatur. **Raum übersteuern**: über das Thermometer-Symbol am Raum z. B. 2 Std. auf 22 °C oder bis zum nächsten Wechsel, danach zurück zum Plan. **Pause** für Stunden, eine Woche oder bis zu einem Datum. Manuelle Änderungen am Thermostat gelten bis zum nächsten Wechsel im Profil. Nimmt ein Thermostat Sollwerte dauerhaft nicht an oder ist es über eine Stunde nicht erreichbar, zeigt die Karte das am Raum und Home Assistant erzeugt einen Reparaturhinweis.
 
 Einrichtung: Integration hinzufügen → **Konfigurieren** → Räume anlegen → Karte `type: custom:heatmanager-card` aufs Dashboard (am besten in eine Ansicht vom Typ *Panel*).
 

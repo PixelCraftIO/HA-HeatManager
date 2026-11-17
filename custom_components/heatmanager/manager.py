@@ -12,7 +12,7 @@ import unicodedata
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import ATTR_ENTITY_ID, ATTR_TEMPERATURE, STATE_ON, STATE_UNAVAILABLE, STATE_UNKNOWN
 from homeassistant.core import CALLBACK_TYPE, Event, EventStateChangedData, HomeAssistant, callback
-from homeassistant.helpers import area_registry as ar
+from homeassistant.helpers import area_registry as ar, issue_registry as ir
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.event import (
     async_call_later,
@@ -38,6 +38,8 @@ from .const import (
     DEFAULT_FROST_TEMP,
     DEFAULT_WINDOW_DELAY,
     DOMAIN,
+    PROBLEM_NOT_ACCEPTING,
+    PROBLEM_UNAVAILABLE,
     REASON_FROST,
     REASON_MANUAL,
     REASON_OVERRIDE,
@@ -52,6 +54,7 @@ from .const import (
     STORAGE_VERSION,
     TEMP_MAX,
     TEMP_MIN,
+    UNAVAILABLE_PROBLEM_AFTER,
 )
 from .schedule import next_change, next_target, normalize_week, profile_target
 
@@ -92,6 +95,11 @@ class RoomRuntime:
     # setpoints before a temporary override, restored afterwards when no plan applies
     override_restore: dict[str, float] = field(default_factory=dict)
     retry_timers: dict[str, CALLBACK_TYPE] = field(default_factory=dict)
+    # thermostat -> what we last asked it for (after clamping)
+    wanted: dict[str, float] = field(default_factory=dict)
+    # thermostat -> problem kind (not_accepting / unavailable)
+    problems: dict[str, str] = field(default_factory=dict)
+    unavailable_since: dict[str, datetime] = field(default_factory=dict)
 
 
 class HeatManager:
@@ -173,6 +181,9 @@ class HeatManager:
             if self._any_window_open(room):
                 self.runtime[room.id].window_open = True
         self._schedule_pause_end()
+        # start clean: problems that still exist are found again
+        for entity_id in climates:
+            ir.async_delete_issue(self.hass, DOMAIN, f"thermostat_{entity_id}")
         self.evaluate(force=True)
 
     @callback
@@ -280,7 +291,62 @@ class HeatManager:
 
     @callback
     def _on_interval(self, _now: datetime) -> None:
+        self._check_unavailable()
         self.evaluate()
+
+    # --------------------------------------------------------------- problems
+    @callback
+    def _check_unavailable(self) -> None:
+        now = dt_util.now()
+        for room in self.rooms.values():
+            rt = self.runtime[room.id]
+            for entity_id in room.climates:
+                st = self.hass.states.get(entity_id)
+                if st is None or st.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
+                    since = rt.unavailable_since.setdefault(entity_id, now)
+                    if (now - since).total_seconds() >= UNAVAILABLE_PROBLEM_AFTER:
+                        self._set_problem(room, entity_id, PROBLEM_UNAVAILABLE)
+                else:
+                    rt.unavailable_since.pop(entity_id, None)
+                    if rt.problems.get(entity_id) == PROBLEM_UNAVAILABLE:
+                        self._clear_problem(room, entity_id)
+
+    @callback
+    def _set_problem(self, room: Room, entity_id: str, kind: str, temp: float | None = None) -> None:
+        rt = self.runtime[room.id]
+        if rt.problems.get(entity_id) == kind:
+            return
+        rt.problems[entity_id] = kind
+        st = self.hass.states.get(entity_id)
+        name = (st.name if st else None) or entity_id
+        if kind == PROBLEM_NOT_ACCEPTING:
+            _LOGGER.warning("%s (%s) keeps ignoring the setpoint %.1f °C", name, room.name, temp or 0)
+        else:
+            _LOGGER.warning("%s (%s) has been unavailable for a long time", name, room.name)
+        ir.async_create_issue(
+            self.hass,
+            DOMAIN,
+            f"thermostat_{entity_id}",
+            is_fixable=False,
+            is_persistent=False,
+            severity=ir.IssueSeverity.WARNING,
+            translation_key=f"thermostat_{kind}",
+            translation_placeholders={
+                "thermostat": name,
+                "entity_id": entity_id,
+                "room": room.name,
+                "temperature": f"{temp:.1f}" if temp is not None else "",
+            },
+        )
+        async_dispatcher_send(self.hass, f"{SIGNAL_UPDATE}_{self.entry.entry_id}")
+
+    @callback
+    def _clear_problem(self, room: Room, entity_id: str) -> None:
+        if self.runtime[room.id].problems.pop(entity_id, None) is None:
+            return
+        _LOGGER.info("%s works again", entity_id)
+        ir.async_delete_issue(self.hass, DOMAIN, f"thermostat_{entity_id}")
+        async_dispatcher_send(self.hass, f"{SIGNAL_UPDATE}_{self.entry.entry_id}")
 
     # ---------------------------------------------------------------- sending
     @callback
@@ -298,7 +364,10 @@ class HeatManager:
         rt = self.runtime[room.id]
         if (old := rt.retry_timers.pop(entity_id, None)) is not None:
             old()
+        rt.wanted[entity_id] = temp
         if current is not None and abs(float(current) - temp) < 0.05:
+            if rt.problems.get(entity_id) == PROBLEM_NOT_ACCEPTING:
+                self._clear_problem(room, entity_id)
             return
         _LOGGER.debug("%s: setting %s to %.1f (attempt %d)", room.name, entity_id, temp, attempt + 1)
         self.hass.async_create_task(
@@ -310,21 +379,28 @@ class HeatManager:
             ),
             eager_start=True,
         )
-        if attempt < len(RETRY_DELAYS):
+        last = attempt >= len(RETRY_DELAYS)
 
-            @callback
-            def _check(_now: datetime) -> None:
-                rt.retry_timers.pop(entity_id, None)
-                # Only retry while we still want this temperature
-                if rt.target is None or abs(rt.target - temp) >= 0.05:
-                    return
-                st = self.hass.states.get(entity_id)
-                cur = st.attributes.get(ATTR_TEMPERATURE) if st else None
-                if cur is None or abs(float(cur) - temp) >= 0.05:
+        @callback
+        def _check(_now: datetime) -> None:
+            rt.retry_timers.pop(entity_id, None)
+            # Only retry while we still want this temperature
+            if rt.target is None or abs(self._clamp(state, rt.target) - temp) >= 0.05:
+                return
+            st = self.hass.states.get(entity_id)
+            if st is None or st.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
+                return
+            cur = st.attributes.get(ATTR_TEMPERATURE)
+            if cur is None or abs(float(cur) - temp) >= 0.05:
+                if last:
+                    self._set_problem(room, entity_id, PROBLEM_NOT_ACCEPTING, temp)
+                else:
                     _LOGGER.info("%s did not take %.1f °C, sending again", entity_id, temp)
                     self._send_climate(room, entity_id, temp, attempt + 1)
 
-            rt.retry_timers[entity_id] = async_call_later(self.hass, RETRY_DELAYS[attempt], _check)
+        rt.retry_timers[entity_id] = async_call_later(
+            self.hass, RETRY_DELAYS[min(attempt, len(RETRY_DELAYS) - 1)], _check
+        )
 
     @staticmethod
     def _clamp(state: Any, temp: float) -> float:
@@ -403,9 +479,14 @@ class HeatManager:
             rt = self.runtime[room.id]
             temp = new.attributes.get(ATTR_TEMPERATURE)
             # Thermostat confirmed our target: no retry needed any more
-            if rt.target is not None and temp is not None and abs(float(temp) - rt.target) < 0.05:
+            wanted = rt.wanted.get(entity_id, rt.target)
+            if rt.target is not None and temp is not None and wanted is not None and abs(float(temp) - wanted) < 0.05:
                 if (unsub := rt.retry_timers.pop(entity_id, None)) is not None:
                     unsub()
+                self._clear_problem(room, entity_id)
+            if rt.problems.get(entity_id) == PROBLEM_UNAVAILABLE:
+                rt.unavailable_since.pop(entity_id, None)
+                self._clear_problem(room, entity_id)
         if old is None or old.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
             # thermostat came back: make sure it has the right target
             if room and (target := self.runtime[room.id].target) is not None:
@@ -577,6 +658,7 @@ class HeatManager:
             "next_temp": None,
             "override": None,
             "plan_change": None,
+            "problems": [{"entity_id": e, "kind": k} for e, k in rt.problems.items()],
         }
         now = dt_util.now()
         profile = self.profiles.get(assignment)
