@@ -1,6 +1,6 @@
 /* HeatManager card – weekly heating profiles, room assignment, pause and window state.
  * Served and auto-loaded by the HeatManager integration. */
-const VERSION = "0.1.0";
+const VERSION = "0.1.1";
 const DAYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];
 const PALETTE = ["#f4a340", "#7e8ef1", "#3fb8c9", "#8bc34a", "#e57373", "#ba68c8", "#4db6ac", "#ffb74d"];
 const ICONS = ["mdi:radiator", "mdi:sofa", "mdi:bed", "mdi:teddy-bear", "mdi:shower", "mdi:desk", "mdi:silverware-fork-knife", "mdi:account-group", "mdi:dumbbell", "mdi:home-export-outline", "mdi:snowflake", "mdi:fire"];
@@ -445,7 +445,7 @@ class HeatManagerCard extends HTMLElement {
     if (blkEl) {
       const idx = Number(blkEl.dataset.idx), b = list[idx];
       const lo = idx > 0 ? list[idx - 1].to : 0, hi = idx < list.length - 1 ? list[idx + 1].from : 1440;
-      drag = { mode: e.target.dataset.h || "move", day, idx, lo, hi, from: b.from, to: b.to, t: b.t, startY: e.clientY, startMin: minAt(e), el: blkEl, moved: false };
+      drag = { mode: e.target.dataset.h || "move", day, idx, lo, hi, from: b.from, to: b.to, t: b.t, origFrom: b.from, origTo: b.to, startY: e.clientY, startMin: minAt(e), el: blkEl, moved: false };
     } else {
       const m = minAt(e);
       if (list.some((b) => m >= b.from && m < b.to)) return;
@@ -454,6 +454,8 @@ class HeatManagerCard extends HTMLElement {
       const ghost = document.createElement("div"); ghost.className = "blk ghost"; track.appendChild(ghost);
       drag = { mode: "create", day, lo, hi, start: m, cur: m, el: ghost, startY: e.clientY, moved: false };
     }
+    // A finger always wobbles a little: only count it as dragging beyond this distance
+    drag.slop = e.pointerType === "mouse" ? 4 : 12;
     e.preventDefault();
     try { track.setPointerCapture(e.pointerId); } catch (_) { /* ignore */ }
     this._drag = drag;
@@ -466,7 +468,7 @@ class HeatManagerCard extends HTMLElement {
     };
     const move = (ev) => {
       const d = this._drag; if (!d) return;
-      if (Math.abs(ev.clientY - d.startY) > 4) d.moved = true;
+      if (Math.abs(ev.clientY - d.startY) > d.slop) d.moved = true;
       if (!d.moved) return;
       const m = minAt(ev);
       if (d.mode === "create") d.cur = Math.max(d.lo, Math.min(d.hi, m));
@@ -483,7 +485,8 @@ class HeatManagerCard extends HTMLElement {
         let f = Math.min(d.start, d.cur), t = Math.max(d.start, d.cur);
         if (t - f < SNAP) { f = d.start; t = Math.min(d.hi, f + 60); if (t - f < SNAP) { this._render(); return; } }
         this._dlg = { kind: "block", day: d.day, idx: null, from: f, to: t, t: this._lastT || this._c.default_temp, copy: [] };
-      } else if (!d.moved) {
+      } else if (!d.moved || (d.from === d.origFrom && d.to === d.origTo)) {
+        // tap (or a drag that changed nothing): open the block
         this._dlg = { kind: "block", day: d.day, idx: d.idx, from: d.from, to: d.to, t: d.t, copy: [] };
       } else {
         this._draft(p)[d.day][d.idx] = { from: d.from, to: d.to, t: d.t };
