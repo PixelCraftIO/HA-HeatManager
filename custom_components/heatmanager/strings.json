@@ -37,11 +37,13 @@
           "name": "Name",
           "climates": "Thermostats",
           "windows": "Window/door contacts",
-          "area": "Area"
+          "area": "Area",
+          "temp_sensors": "Temperature sensors"
         },
         "data_description": {
-          "climates": "All thermostats of this room get the same target.",
-          "windows": "Optional. While any of them is open, the room is set to frost protection."
+          "climates": "Thermostats of this room.",
+          "windows": "Optional. While any of them is open, the room is set to frost protection.",
+          "temp_sensors": "Optional. One or more room sensors. Without any, the thermostats' own readings are used."
         }
       },
       "edit_room": {
@@ -56,7 +58,12 @@
           "name": "Name",
           "climates": "Thermostats",
           "windows": "Window/door contacts",
-          "area": "Area"
+          "area": "Area",
+          "temp_sensors": "Temperature sensors"
+        },
+        "data_description": {
+          "temp_sensors": "Optional. One or more room sensors. Without any, the thermostats' own readings are used.",
+          "climates": "Thermostats of this room."
         }
       },
       "remove_room": {
@@ -89,6 +96,30 @@
           "away_temp": "Maximum target while nobody is home.",
           "away_delay": "How long everybody must be gone before lowering."
         }
+      },
+      "room_temperature": {
+        "title": "Room temperature of {room}",
+        "description": "How HeatManager forms the room's actual temperature from its sensors and how the thermostats use it. Sensors that are unavailable or have not reported for longer than the maximum age are ignored; without any valid sensor the thermostats' own readings are used. With several sensors, each gets a weight below (0 = not counted, only used for the upper limit).",
+        "data": {
+          "temp_method": "Calculation",
+          "primary_sensor": "Main sensor",
+          "window_near_sensors": "Sensors near a window",
+          "sensor_max_age": "Maximum age",
+          "upper_limit": "Upper limit",
+          "control": "Control"
+        },
+        "data_description": {
+          "temp_method": "Mean (weighted), lowest, highest, or a main sensor with the others as fallback.",
+          "primary_sensor": "Only for the calculation 'Main sensor'.",
+          "window_near_sensors": "Ignored while a window of the room is open and 15 minutes after it was closed.",
+          "sensor_max_age": "A sensor that has not reported for this long counts as failed.",
+          "upper_limit": "Stop heating while any sensor is this far above the target (0 = off). Heats again 0.5 K below the limit.",
+          "control": "Only 'Thermostat controls itself' leaves the setpoint exactly as planned."
+        }
+      },
+      "room_external": {
+        "title": "External temperature inputs in {room}",
+        "description": "For each thermostat, the number entity that takes an external room temperature (often called 'External temperature'). HeatManager sends the room temperature there at least every 15 minutes. Thermostats without one are compensated instead."
       }
     },
     "error": {
@@ -117,10 +148,14 @@
               "manual": "Manual",
               "override": "Override",
               "away": "Nobody home",
-              "vacation": "Vacation"
+              "vacation": "Vacation",
+              "too_warm": "Too warm at a sensor"
             }
           }
         }
+      },
+      "room_temperature": {
+        "name": "Room temperature"
       }
     },
     "switch": {
@@ -211,6 +246,27 @@
     "thermostat_not_responding": {
       "title": "{thermostat} does not respond",
       "description": "HeatManager sent **{thermostat}** (`{entity_id}`, room {room}) {temperature} °C four times over about 13 minutes, but the device has not reported anything since. Home Assistant may still show its last known values.\n\nThe device most likely lost its radio connection or hangs: check batteries and range (e.g. the Zigbee/Thread map), or take the batteries out briefly. Tip for Zigbee2MQTT: enable *availability* so such devices show up as unavailable. The warning disappears as soon as the thermostat takes a setpoint again."
+    },
+    "sensors_unavailable": {
+      "title": "No temperature sensor of {room} has reported for over an hour",
+      "description": "None of the temperature sensors of room **{room}** ({sensors}) has delivered a valid value for more than an hour. HeatManager uses the thermostats' own readings meanwhile.\n\nCheck batteries and the radio connection of the sensors. The warning disappears as soon as one of them reports again."
+    }
+  },
+  "selector": {
+    "temp_method": {
+      "options": {
+        "mean": "Mean (weighted)",
+        "min": "Lowest sensor",
+        "max": "Highest sensor",
+        "primary": "Main sensor, others as fallback"
+      }
+    },
+    "control": {
+      "options": {
+        "thermostat": "Thermostat controls itself (same setpoint for all)",
+        "external": "Send room temperature to the thermostats",
+        "offset": "Compensate each thermostat's setpoint"
+      }
     }
   }
 }

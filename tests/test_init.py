@@ -319,10 +319,54 @@ async def test_config_and_options_flow(hass: HomeAssistant) -> None:
     result = await hass.config_entries.options.async_configure(
         result["flow_id"], {"name": "Bad", "climates": ["climate.bath"], "windows": []}
     )
+    assert result["type"] == "form" and result["step_id"] == "room_temperature"
+    result = await hass.config_entries.options.async_configure(result["flow_id"], {})
     assert result["type"] == "create_entry"
     await hass.async_block_till_done()
     assert [r["name"] for r in entry.options["rooms"]] == ["Bad"]
+    assert entry.options["rooms"][0]["control"] == "thermostat"
     assert hass.states.get("select.bad_heating_profile") is not None
+
+    # edit: two sensors, weights, upper limit, external inputs
+    hass.states.async_set("sensor.bath_a", "20", {"device_class": "temperature"})
+    hass.states.async_set("sensor.bath_b", "21", {"device_class": "temperature"})
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await hass.config_entries.options.async_configure(result["flow_id"], {"next_step_id": "edit_room"})
+    room_id = entry.options["rooms"][0]["id"]
+    result = await hass.config_entries.options.async_configure(result["flow_id"], {"room": room_id})
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {
+            "name": "Bad",
+            "climates": ["climate.bath"],
+            "windows": [],
+            "temp_sensors": ["sensor.bath_a", "sensor.bath_b"],
+        },
+    )
+    assert result["step_id"] == "room_temperature"
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {
+            "temp_method": "mean",
+            "window_near_sensors": ["sensor.bath_a"],
+            "sensor_max_age": 30,
+            "upper_limit": 1.5,
+            "control": "external",
+            "sensor.bath_a": 1,
+            "sensor.bath_b": 3,
+        },
+    )
+    assert result["step_id"] == "room_external"
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"climate.bath": "number.bath_external"}
+    )
+    assert result["type"] == "create_entry"
+    room = entry.options["rooms"][0]
+    assert room["temp_sensors"] == ["sensor.bath_a", "sensor.bath_b"]
+    assert room["sensor_weights"] == {"sensor.bath_a": 1.0, "sensor.bath_b": 3.0}
+    assert room["upper_limit"] == 1.5 and room["sensor_max_age"] == 30
+    assert room["window_near_sensors"] == ["sensor.bath_a"]
+    assert room["external_inputs"] == {"climate.bath": "number.bath_external"}
 
     # second instance not allowed
     result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": "user"})

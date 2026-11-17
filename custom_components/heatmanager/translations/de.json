@@ -37,11 +37,13 @@
           "name": "Name",
           "climates": "Thermostate",
           "windows": "Fenster-/Türkontakte",
-          "area": "Bereich"
+          "area": "Bereich",
+          "temp_sensors": "Temperatursensoren"
         },
         "data_description": {
-          "climates": "Alle Thermostate des Raums bekommen dieselbe Solltemperatur.",
-          "windows": "Optional. Solange einer offen ist, geht der Raum auf Frostschutz."
+          "climates": "Thermostate dieses Raums.",
+          "windows": "Optional. Solange einer offen ist, geht der Raum auf Frostschutz.",
+          "temp_sensors": "Optional. Ein oder mehrere Raumsensoren. Ohne Sensor gelten die Messwerte der Thermostate."
         }
       },
       "edit_room": {
@@ -56,7 +58,12 @@
           "name": "Name",
           "climates": "Thermostate",
           "windows": "Fenster-/Türkontakte",
-          "area": "Bereich"
+          "area": "Bereich",
+          "temp_sensors": "Temperatursensoren"
+        },
+        "data_description": {
+          "temp_sensors": "Optional. Ein oder mehrere Raumsensoren. Ohne Sensor gelten die Messwerte der Thermostate.",
+          "climates": "Thermostate dieses Raums."
         }
       },
       "remove_room": {
@@ -89,6 +96,30 @@
           "away_temp": "Höchste Zieltemperatur, solange niemand zu Hause ist.",
           "away_delay": "So lange müssen alle weg sein, bevor abgesenkt wird."
         }
+      },
+      "room_temperature": {
+        "title": "Raumtemperatur von {room}",
+        "description": "Wie HeatManager aus den Sensoren die Ist-Temperatur des Raums bildet und wie die Thermostate sie nutzen. Nicht erreichbare oder zu lange stumme Sensoren werden ignoriert, ohne gültigen Sensor gelten die Messwerte der Thermostate. Bei mehreren Sensoren bekommt jeder unten eine Gewichtung (0 = zählt nicht, nur für die Obergrenze).",
+        "data": {
+          "temp_method": "Berechnung",
+          "primary_sensor": "Hauptsensor",
+          "window_near_sensors": "Sensoren in Fensternähe",
+          "sensor_max_age": "Maximales Alter",
+          "upper_limit": "Obergrenze",
+          "control": "Regelart"
+        },
+        "data_description": {
+          "temp_method": "Mittelwert (gewichtet), niedrigster, höchster Wert oder ein Hauptsensor mit den anderen als Ersatz.",
+          "primary_sensor": "Nur für die Berechnung „Hauptsensor“.",
+          "window_near_sensors": "Zählen nicht, solange ein Fenster des Raums offen ist, und 15 Minuten danach.",
+          "sensor_max_age": "Ein Sensor, der so lange nichts gemeldet hat, gilt als ausgefallen.",
+          "upper_limit": "Nicht weiterheizen, solange ein Sensor so weit über dem Ziel liegt (0 = aus). Geheizt wird wieder 0,5 K unter der Grenze.",
+          "control": "Nur „Thermostat regelt selbst“ lässt den Sollwert genau wie geplant."
+        }
+      },
+      "room_external": {
+        "title": "Externe Temperatureingänge in {room}",
+        "description": "Je Thermostat die Zahl-Entität, die eine externe Raumtemperatur annimmt (oft „External temperature“ genannt). HeatManager schickt die Raumtemperatur dorthin, mindestens alle 15 Minuten. Thermostate ohne solche Entität werden stattdessen ausgeglichen."
       }
     },
     "error": {
@@ -117,10 +148,14 @@
               "manual": "Manuell",
               "override": "Übersteuert",
               "away": "Niemand zu Hause",
-              "vacation": "Urlaub"
+              "vacation": "Urlaub",
+              "too_warm": "Zu warm am Sensor"
             }
           }
         }
+      },
+      "room_temperature": {
+        "name": "Raumtemperatur"
       }
     },
     "switch": {
@@ -211,6 +246,27 @@
     "thermostat_not_responding": {
       "title": "{thermostat} antwortet nicht",
       "description": "HeatManager hat **{thermostat}** (`{entity_id}`, Raum {room}) innerhalb von etwa 13 Minuten viermal {temperature} °C geschickt, das Gerät hat seitdem aber gar nichts mehr gemeldet. Home Assistant zeigt eventuell noch die zuletzt bekannten Werte an.\n\nVermutlich ist die Funkverbindung weg oder das Gerät hängt: Batterien und Reichweite prüfen (z. B. in der Zigbee-Karte) oder die Batterien kurz herausnehmen. Tipp für Zigbee2MQTT: *Availability* aktivieren, dann erscheinen solche Geräte als nicht verfügbar. Der Hinweis verschwindet, sobald das Thermostat wieder einen Sollwert annimmt."
+    },
+    "sensors_unavailable": {
+      "title": "Kein Temperatursensor in {room} meldet seit über einer Stunde",
+      "description": "Keiner der Temperatursensoren im Raum **{room}** ({sensors}) liefert seit mehr als einer Stunde einen gültigen Wert. HeatManager nutzt solange die Messwerte der Thermostate.\n\nBitte Batterien und Funkverbindung der Sensoren prüfen. Der Hinweis verschwindet, sobald wieder einer meldet."
+    }
+  },
+  "selector": {
+    "temp_method": {
+      "options": {
+        "mean": "Mittelwert (gewichtet)",
+        "min": "Niedrigster Sensor",
+        "max": "Höchster Sensor",
+        "primary": "Hauptsensor, andere als Ersatz"
+      }
+    },
+    "control": {
+      "options": {
+        "thermostat": "Thermostat regelt selbst (gleicher Sollwert für alle)",
+        "external": "Raumtemperatur an die Thermostate senden",
+        "offset": "Sollwert je Thermostat ausgleichen"
+      }
     }
   }
 }
