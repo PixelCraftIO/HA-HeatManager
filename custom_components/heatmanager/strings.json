@@ -1,0 +1,134 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "HeatManager",
+        "description": "General settings. Rooms are added afterwards via Configure.",
+        "data": {
+          "frost_temp": "Frost protection temperature",
+          "window_delay": "Window delay"
+        },
+        "data_description": {
+          "frost_temp": "Used while a window is open and for rooms set to frost protection.",
+          "window_delay": "How long a window must be open before the heating is lowered."
+        }
+      }
+    },
+    "abort": {
+      "already_configured": "HeatManager is already set up.",
+      "single_instance_allowed": "HeatManager is already set up."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "HeatManager",
+        "menu_options": {
+          "add_room": "Add room",
+          "edit_room": "Edit room",
+          "remove_room": "Remove rooms",
+          "settings": "Settings"
+        }
+      },
+      "add_room": {
+        "title": "Add room",
+        "data": {
+          "name": "Name",
+          "climates": "Thermostats",
+          "windows": "Window/door contacts",
+          "area": "Area"
+        },
+        "data_description": {
+          "climates": "All thermostats of this room get the same target.",
+          "windows": "Optional. While any of them is open, the room is set to frost protection."
+        }
+      },
+      "edit_room": {
+        "title": "Edit room",
+        "data": {
+          "room": "Room"
+        }
+      },
+      "edit_room_details": {
+        "title": "Edit {room}",
+        "data": {
+          "name": "Name",
+          "climates": "Thermostats",
+          "windows": "Window/door contacts",
+          "area": "Area"
+        }
+      },
+      "remove_room": {
+        "title": "Remove rooms",
+        "data": {
+          "rooms": "Rooms to remove"
+        }
+      },
+      "settings": {
+        "title": "Settings",
+        "data": {
+          "frost_temp": "Frost protection temperature",
+          "window_delay": "Window delay"
+        },
+        "data_description": {
+          "frost_temp": "Used while a window is open and for rooms set to frost protection.",
+          "window_delay": "How long a window must be open before the heating is lowered."
+        }
+      }
+    },
+    "error": {
+      "no_climate": "Select at least one thermostat.",
+      "name_exists": "A room with this name already exists."
+    }
+  },
+  "entity": {
+    "select": {
+      "profile": {
+        "name": "Heating profile"
+      }
+    },
+    "sensor": {
+      "target": {
+        "name": "Target temperature",
+        "state_attributes": {
+          "reason": {
+            "name": "Reason",
+            "state": {
+              "profile_block": "Time block",
+              "profile_base": "Base temperature",
+              "frost": "Frost protection",
+              "window": "Window open",
+              "paused": "Paused",
+              "manual": "Manual"
+            }
+          }
+        }
+      }
+    },
+    "switch": {
+      "pause": {
+        "name": "Schedule paused"
+      }
+    }
+  },
+  "services": {
+    "pause": {
+      "name": "Pause schedule",
+      "description": "Pause all heating profiles. Thermostats keep their current temperature. Without duration or end, the pause lasts until resumed.",
+      "fields": {
+        "duration": {
+          "name": "Duration",
+          "description": "How long to pause."
+        },
+        "until": {
+          "name": "Until",
+          "description": "When the schedule continues."
+        }
+      }
+    },
+    "resume": {
+      "name": "Resume schedule",
+      "description": "End the pause and apply the heating profiles again."
+    }
+  }
+}
