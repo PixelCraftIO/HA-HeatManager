@@ -1,6 +1,6 @@
 /* HeatManager card – weekly heating profiles, room assignment, pause and window state.
  * Served and auto-loaded by the HeatManager integration. */
-const VERSION = "0.6.0";
+const VERSION = "0.6.1";
 const DAYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];
 const PALETTE = ["#f4a340", "#7e8ef1", "#3fb8c9", "#8bc34a", "#e57373", "#ba68c8", "#4db6ac", "#ffb74d"];
 const ICONS = ["mdi:radiator", "mdi:sofa", "mdi:bed", "mdi:teddy-bear", "mdi:shower", "mdi:desk", "mdi:silverware-fork-knife", "mdi:account-group", "mdi:dumbbell", "mdi:home-export-outline", "mdi:snowflake", "mdi:fire"];
@@ -33,6 +33,7 @@ const I18N = {
     noRooms: "Noch keine Räume. Lege sie unter Einstellungen › Geräte & Dienste › HeatManager › Konfigurieren an.",
     noProfiles: "Noch keine Heizprofile – lege mit „Neues Profil“ das erste an.",
     adminOnly: "Profile bearbeiten können nur Administratoren.",
+    usedBy: "genutzt von {r}", usedByNone: "von keinem Raum genutzt",
     today: "Heute", todayOff: "nicht gesteuert", editProfile: "Bearbeiten", editTitle: "Profil bearbeiten", color: "Farbe",
     vacation: "Urlaubsmodus", vacationSub: "bis {t} · Frostschutz in allen Räumen mit Plan", vacationBtn: "Urlaub…", vacationTitle: "Urlaub bis", vacationHint: "Bis dahin Frostschutz in allen Räumen mit Profil oder Frostschutz, danach läuft der Heizplan weiter. Räume auf Manuell bleiben unberührt.", vacationStart: "Urlaub starten", vacationEnd: "Urlaub beenden",
     away: "Niemand zu Hause · höchstens {t} °C", home: "Jemand zu Hause",
@@ -65,6 +66,7 @@ const I18N = {
     noRooms: "No rooms yet. Add them under Settings › Devices & services › HeatManager › Configure.",
     noProfiles: "No heating profiles yet – create the first one with “New profile”.",
     adminOnly: "Only administrators can edit profiles.",
+    usedBy: "used by {r}", usedByNone: "not used by any room",
     today: "Today", todayOff: "not controlled", editProfile: "Edit", editTitle: "Edit profile", color: "Colour",
     vacation: "Vacation", vacationSub: "until {t} · frost protection in all scheduled rooms", vacationBtn: "Vacation…", vacationTitle: "Vacation until", vacationHint: "Until then frost protection in all rooms with a profile or frost protection, then the schedule continues. Manual rooms stay untouched.", vacationStart: "Start vacation", vacationEnd: "End vacation",
     away: "Nobody home · at most {t} °C", home: "Somebody home",
@@ -233,21 +235,28 @@ class HeatManagerCard extends HTMLElement {
         return `<div class="col"><div class="dhead"><span>${dn[di]}</span>${admin ? `<button class="ico" data-copyday="${d}" title="${this._t("copyDay")}"><ha-icon icon="mdi:content-copy"></ha-icon></button>` : ""}</div>
           <div class="track ${admin ? "edit" : ""}" data-day="${d}" style="height:${24 * hh}px;background-size:100% ${hh}px">${blocks}<div class="now" data-nowday="${d}"></div></div></div>`;
       }).join("");
+      const used = data.rooms.filter((r) => r.profile === p.id).map((r) => r.name);
       profHtml = `
-        <div class="pbar">
-          <div class="base"><span>${this._t("base")} <small>${this._t("baseHint")}</small></span>
-            <div class="step">${admin ? `<button class="ico" data-base="-0.5"><ha-icon icon="mdi:minus"></ha-icon></button>` : ""}
-              <b style="color:${tempColor(p.base_temp)}">${this._fmtT(p.base_temp)} °C</b>
-              ${admin ? `<button class="ico" data-base="0.5"><ha-icon icon="mdi:plus"></ha-icon></button>` : ""}</div></div>
+        <div class="pcard" style="--pc:${this._pcolor(p.id)}">
+          <div class="phead">
+            <ha-icon icon="${esc(p.icon || "mdi:radiator")}"></ha-icon>
+            <div class="pname"><b>${esc(p.name)}</b><small>${used.length ? this._t("usedBy", { r: used.map(esc).join(", ") }) : this._t("usedByNone")}</small></div>
+            ${admin ? `<button class="btn small" data-act="edit-profile"><ha-icon icon="mdi:pencil"></ha-icon><span class="lbl">${this._t("editProfile")}</span></button>
+              <button class="btn danger small" data-act="del-profile" title="${this._t("deleteProfile")}"><ha-icon icon="mdi:delete-outline"></ha-icon><span class="lbl">${this._t("deleteProfile")}</span></button>` : ""}
+          </div>
+          <div class="pbar">
+            <div class="base"><span>${this._t("base")} <small>${this._t("baseHint")}</small></span>
+              <div class="step">${admin ? `<button class="ico" data-base="-0.5"><ha-icon icon="mdi:minus"></ha-icon></button>` : ""}
+                <b style="color:${tempColor(p.base_temp)}">${this._fmtT(p.base_temp)} °C</b>
+                ${admin ? `<button class="ico" data-base="0.5"><ha-icon icon="mdi:plus"></ha-icon></button>` : ""}</div></div>
+          </div>
           <div class="hint"><ha-icon icon="mdi:gesture-swipe-vertical"></ha-icon>${admin ? this._t(window.matchMedia && matchMedia("(pointer: coarse)").matches ? "hintTouch" : "hint") : this._t("adminOnly")}</div>
-          ${admin ? `<span class="pbtns"><button class="btn small" data-act="edit-profile"><ha-icon icon="mdi:pencil"></ha-icon>${this._t("editProfile")}</button>` : ""}
-          ${admin ? `<button class="btn danger small" data-act="del-profile"><ha-icon icon="mdi:delete-outline"></ha-icon>${this._t("deleteProfile")}</button></span>` : ""}
-        </div>
-        <div class="gridwrap"><div class="grid">
-          <div class="axis"><div class="dhead"></div><div class="axtrack" style="height:${24 * hh}px">${axis}</div></div>${cols}
-        </div></div>
-        ${this._drafts[p.id] ? `<div class="savebar"><ha-icon icon="mdi:content-save-alert"></ha-icon><span>${this._t("unsaved", { p: esc(p.name) })}</span>
-          <button class="btn" data-act="discard">${this._t("discard")}</button><button class="btn primary" data-act="save">${this._t("save")}</button></div>` : ""}`;
+          <div class="gridwrap"><div class="grid">
+            <div class="axis"><div class="dhead"></div><div class="axtrack" style="height:${24 * hh}px">${axis}</div></div>${cols}
+          </div></div>
+          ${this._drafts[p.id] ? `<div class="savebar"><ha-icon icon="mdi:content-save-alert"></ha-icon><span>${this._t("unsaved", { p: esc(p.name) })}</span>
+            <button class="btn" data-act="discard">${this._t("discard")}</button><button class="btn primary" data-act="save">${this._t("save")}</button></div>` : ""}
+        </div>`;
     } else {
       profHtml = `<div class="empty">${this._t("noProfiles")}</div>`;
     }
@@ -373,7 +382,8 @@ class HeatManagerCard extends HTMLElement {
         <div class="dsub">${this._t(vac ? "vacationHint" : "pauseHint")}</div>
         <div class="dbtns"><span class="sp"></span><button class="btn" data-dact="cancel">${this._t("cancel")}</button><button class="btn primary" data-dact="apply">${this._t(vac ? "vacationStart" : "pause")}</button></div>`;
     }
-    return `<div class="overlay"><div class="dlg">${body}</div></div>`;
+    // a native modal dialog sits in the top layer: always centred in the visible screen, whatever is scrolled
+    return `<dialog class="overlay"><div class="dlg" tabindex="-1" autofocus>${body}</div></dialog>`;
   }
 
   _lookHtml(d) {
@@ -511,6 +521,8 @@ class HeatManagerCard extends HTMLElement {
     const dlg = this._dlg;
     if (!dlg) return;
     const ov = r.querySelector(".overlay");
+    if (!ov.open) { try { ov.showModal(); } catch (_) { ov.setAttribute("open", ""); } }
+    ov.addEventListener("cancel", (e) => { e.preventDefault(); this._closeDlg(); });
     ov.addEventListener("click", (e) => { if (e.target === ov && Date.now() - (this._dlgAt || 0) > 500) this._closeDlg(); });
     const keep = () => {
       const f = r.getElementById("dfrom"), t = r.getElementById("dto"), n = r.getElementById("dname"), tp = r.getElementById("dtpl");
@@ -566,7 +578,7 @@ class HeatManagerCard extends HTMLElement {
       const hi = list.filter((b) => b.from >= m).reduce((a, b) => Math.min(a, b.from), 1440);
       drag = { mode: "create", day, lo, hi, start: m, cur: m, el: null };
     }
-    Object.assign(drag, { startX: e.clientX, startY: e.clientY, moved: false, active: !touch, pid: e.pointerId,
+    Object.assign(drag, { startX: e.clientX, startY: e.clientY, moved: false, active: false, pid: e.pointerId,
       // a finger always wobbles a little: only count it as dragging beyond this distance
       slop: touch ? 12 : 4 });
     this._drag = drag;
@@ -683,11 +695,17 @@ ha-icon { --mdc-icon-size:18px; }
 .tab.sel { border-color:var(--pc); background:color-mix(in srgb, var(--pc) 18%, var(--card-background-color)); font-weight:600; }
 .tab.add { border-style:dashed; color:var(--secondary-text-color); background:transparent; }
 .tab.add:hover { color:var(--primary-text-color); border-color:var(--primary-color); }
-.pbar { display:flex; flex-wrap:wrap; justify-content:space-between; align-items:center; gap:10px; margin-bottom:10px; }
+.tabs .tab.sel { border-bottom-left-radius:4px; border-bottom-right-radius:4px; }
+.pcard { border:1px solid color-mix(in srgb, var(--pc) 55%, transparent); background:color-mix(in srgb, var(--pc) 6%, transparent); border-radius:14px; padding:12px; }
+.phead { display:flex; align-items:center; gap:10px; padding-bottom:10px; margin-bottom:10px; border-bottom:1px solid var(--divider-color); }
+.phead > ha-icon { --mdc-icon-size:24px; color:var(--pc); flex:none; }
+.pname { flex:1; min-width:0; display:flex; flex-direction:column; }
+.pname b { font-size:1.1em; } .pname small { color:var(--secondary-text-color); font-size:.8em; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.pbar { display:flex; flex-wrap:wrap; align-items:center; gap:10px; margin-bottom:8px; }
 .base { display:flex; align-items:center; gap:12px; } .base small { color:var(--secondary-text-color); }
 .step { display:flex; align-items:center; gap:4px; background:var(--secondary-background-color); border-radius:999px; padding:2px 6px; }
 .step b { min-width:64px; text-align:center; }
-.hint { color:var(--secondary-text-color); font-size:.8em; display:flex; align-items:center; gap:6px; }
+.hint { color:var(--secondary-text-color); font-size:.8em; display:flex; align-items:center; gap:6px; margin-bottom:8px; }
 .gridwrap { overflow-x:auto; }
 .grid { display:grid; grid-template-columns:44px repeat(7, minmax(56px, 1fr)); gap:4px; min-width:460px; }
 .dhead { height:30px; display:flex; align-items:center; justify-content:center; gap:2px; font-weight:600; }
@@ -736,11 +754,12 @@ select { font:inherit; color:var(--primary-text-color); background:var(--card-ba
 .tticks span { position:absolute; transform:translateX(-50%); } .tticks span:first-child { transform:none; } .tticks span:last-child { transform:translateX(-100%); }
 .swatch { width:30px; height:30px; border-radius:50%; border:2px solid transparent; padding:0; }
 .swatch.on { border-color:var(--primary-text-color); box-shadow:0 0 0 2px var(--card-background-color) inset; }
-.pbtns { display:flex; gap:6px; }
 .legend { margin-top:8px; font-size:.8em; color:var(--secondary-text-color); }
 .err { padding:14px; border-radius:10px; background:rgba(219,68,55,.12); color:var(--error-color, #db4437); }
 .empty { color:var(--secondary-text-color); padding:20px; text-align:center; }
-.overlay { position:absolute; inset:0; background:rgba(0,0,0,.45); display:flex; align-items:flex-start; justify-content:center; padding-top:120px; z-index:10; }
+dialog.overlay { padding:16px; margin:0; border:none; background:transparent; width:100%; height:100%; max-width:none; max-height:none; box-sizing:border-box; display:flex; align-items:center; justify-content:center; color:var(--primary-text-color); }
+dialog.overlay::backdrop { background:rgba(0,0,0,.5); }
+.dlg { max-height:calc(100% - 16px); overflow:auto; outline:none; }
 .dlg { background:var(--card-background-color); border-radius:18px; padding:20px; width:min(420px, 92%); box-shadow:0 10px 30px rgba(0,0,0,.5); }
 .dtitle { font-size:1.15em; font-weight:600; margin-bottom:14px; }
 .drow { display:flex; gap:12px; margin-bottom:14px; }
@@ -751,7 +770,7 @@ select { font:inherit; color:var(--primary-text-color); background:var(--card-ba
 .dsub { font-size:.85em; color:var(--secondary-text-color); margin:6px 0 8px; }
 .dchips { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:16px; }
 .dbtns { display:flex; gap:8px; align-items:center; } .sp { flex:1; }
-@media (max-width:600px) { ha-card { padding:12px; } .hint { display:none; } .overlay { padding-top:40px; } .rooms { grid-template-columns:1fr; } .tname { width:80px; } }
+@media (max-width:600px) { ha-card { padding:12px; } .phead .lbl { display:none; } .pcard { padding:8px; } .base small { display:none; } .rooms { grid-template-columns:1fr; } .tname { width:80px; } }
 `;
 
 if (!customElements.get("heatmanager-card")) {
