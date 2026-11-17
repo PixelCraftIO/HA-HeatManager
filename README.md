@@ -52,9 +52,11 @@ Editing profiles requires an administrator account; everybody can assign profile
 
 | Entity | Description |
 |---|---|
-| `select.heatmanager_<room>_heating_profile` | Profile of the room (incl. *Frost protection* and *Manual*) |
-| `sensor.heatmanager_<room>_target_temperature` | Target HeatManager sets; attributes `reason`, `profile`, `window_open`, `next_change`, `next_temperature`, `override_until`, `problems` |
+| `select.<room>_heating_profile` | Profile of the room (incl. *Frost protection* and *Manual*) |
+| `sensor.<room>_target_temperature` | Target HeatManager sets; attributes `reason`, `profile`, `window_open`, `next_change`, `next_temperature`, `override_until`, `problems` |
 | `switch.heatmanager_schedule_paused` | On while paused; attribute `until` |
+
+Room devices are named after the room (e.g. *Kids Heating profile*). Installations from before 0.6.0 keep their existing entity IDs (`select.heatmanager_<room>_…`).
 
 ## Actions
 
@@ -104,6 +106,14 @@ HeatManager steuert Thermostate über **Heizprofile mit Wochenraster**. Zeitblö
 Die Zeitleiste **Heute** zeigt pro Raum, wann geheizt wird. Profile lassen sich jederzeit umbenennen, Symbol und Farbe ändern (*Bearbeiten*).
 
 Einrichtung: Integration hinzufügen → **Konfigurieren** → Räume anlegen → Karte `type: custom:heatmanager-card` aufs Dashboard (am besten in eine Ansicht vom Typ *Panel*).
+
+## Bug reports
+
+Please attach diagnostics: **Settings → Devices & services → HeatManager → ⋮ → Download diagnostics**. They contain rooms, profiles and the thermostat states HeatManager sees (presence entities are left out).
+
+## Releases
+
+Every version bump on `main` creates a GitHub release automatically (`.github/workflows/release.yml`), which HACS offers as an update.
 
 ## License
 
