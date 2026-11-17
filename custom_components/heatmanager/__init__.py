@@ -93,7 +93,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: HeatManagerConfigEntry) 
         config_entry_id=entry.entry_id,
         identifiers={(DOMAIN, entry.entry_id)},
         name=NAME,
-        manufacturer="PixelCraftIO",
+        manufacturer="PixelDevIO",
         model="HeatManager",
         sw_version=VERSION,
         entry_type=dr.DeviceEntryType.SERVICE,

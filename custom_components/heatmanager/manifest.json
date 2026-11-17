@@ -1,13 +1,13 @@
 {
   "domain": "heatmanager",
   "name": "HeatManager",
-  "codeowners": ["@PixelCraftIO"],
+  "codeowners": ["@PixelDevIO"],
   "config_flow": true,
   "dependencies": ["frontend", "http", "websocket_api"],
-  "documentation": "https://github.com/PixelCraftIO/HA-HeatManager",
+  "documentation": "https://github.com/PixelDevIO/HA-HeatManager",
   "integration_type": "service",
   "iot_class": "calculated",
-  "issue_tracker": "https://github.com/PixelCraftIO/HA-HeatManager/issues",
+  "issue_tracker": "https://github.com/PixelDevIO/HA-HeatManager/issues",
   "requirements": [],
   "single_config_entry": true,
   "version": "0.1.1"
