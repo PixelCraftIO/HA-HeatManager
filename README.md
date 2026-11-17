@@ -38,6 +38,7 @@ Copy `custom_components/heatmanager` into your `config/custom_components/` folde
    Tip: put it in a view of type **Panel** to give the grid the full width.
 
 4. In the card create profiles with **New profile**, drag time blocks into the grid and assign profiles to rooms.
+   On touch screens a normal swipe scrolls the page; **press and hold** a moment, then drag to create or move a block. A short tap opens a block.
 
 Editing profiles requires an administrator account; everybody can assign profiles and pause.
 
@@ -84,7 +85,7 @@ Put thermostats into a manual/heat mode so their internal week program does not 
 
 ## Deutsch
 
-HeatManager steuert Thermostate über **Heizprofile mit Wochenraster**. Zeitblöcke werden mit der Maus oder dem Finger ins Raster gezogen, jeder Block bekommt eine eigene Temperatur, außerhalb gilt die Grundtemperatur. Räume (ein oder mehrere Thermostate, optional Fensterkontakte) bekommen ein Profil, *Frostschutz* oder *Manuell*.
+HeatManager steuert Thermostate über **Heizprofile mit Wochenraster**. Zeitblöcke werden mit der Maus ins Raster gezogen (auf dem Tablet: kurz gedrückt halten, dann ziehen; normales Wischen scrollt), jeder Block bekommt eine eigene Temperatur, außerhalb gilt die Grundtemperatur. Räume (ein oder mehrere Thermostate, optional Fensterkontakte) bekommen ein Profil, *Frostschutz* oder *Manuell*.
 
 **Fenster offen** → nach 30 s Frostschutz, beim Schließen zurück zum Profil bzw. zur vorherigen Temperatur. **Pause** für Stunden, eine Woche oder bis zu einem Datum. Manuelle Änderungen am Thermostat gelten bis zum nächsten Wechsel im Profil.
 
