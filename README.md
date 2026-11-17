@@ -17,7 +17,7 @@ Weekly heating profiles with a visual 7‑day grid, profiles you assign to rooms
 - **Vacation**: frost protection in all scheduled rooms until a date (card button *Vacation…* or `heatmanager.start_vacation`), then the schedule continues. Unlike the pause, which only holds the current temperatures.
 - **Manual changes are respected** until the next change in the profile.
 - **Reliable sending**: if a thermostat does not confirm a new setpoint, it is sent again (after 1, 2 and 5 minutes); thermostats that come back online get the current target.
-- **Thermostat problems are reported**: if a thermostat still ignores its setpoint after the retries, or is unavailable for over an hour, the card marks the room and Home Assistant shows a repair notice (Settings → Repairs). Both disappear once the device works again.
+- **Thermostat problems are reported**: if a thermostat still ignores its setpoint after the retries, stops responding altogether (no update at all, e.g. lost Zigbee connection while Home Assistant still shows old values), or is unavailable for over an hour, the card marks the room and Home Assistant shows a repair notice (Settings → Repairs). Both disappear once the device works again.
 - Works with any `climate` entity (Homematic IP, Zigbee2MQTT, ZHA, Tado, …). No cloud, no YAML.
 
 ## Installation

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 DOMAIN = "heatmanager"
 NAME = "HeatManager"
-VERSION = "0.7.0"
+VERSION = "0.7.1"
 
 CONF_ROOMS = "rooms"
 CONF_ROOM_ID = "id"
@@ -56,6 +56,8 @@ RETRY_DELAYS = (60, 120, 300)
 UNAVAILABLE_PROBLEM_AFTER = 3600
 PROBLEM_NOT_ACCEPTING = "not_accepting"
 PROBLEM_UNAVAILABLE = "unavailable"
+# thermostat sent no state update at all while we kept sending it commands
+PROBLEM_NOT_RESPONDING = "not_responding"
 # Safety re-evaluation interval (minutes)
 RECHECK_INTERVAL_MIN = 5
 
