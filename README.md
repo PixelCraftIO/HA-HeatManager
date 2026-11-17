@@ -43,6 +43,8 @@ Copy `custom_components/heatmanager` into your `config/custom_components/` folde
    type: custom:heatmanager-card
    ```
 
+   HeatManager also keeps a small entry named *HeatManager card loader* under **Settings → Dashboards → Resources**. It makes the card appear on dashboards that were opened while Home Assistant was still starting, without reloading the browser. It is removed together with the integration. With YAML resources (`resource_mode: yaml`) nothing is added there.
+
    Tip: put it in a view of type **Panel** to give the grid the full width. Options: `show_today: false` hides the timeline, `hour_height` (default 22) sets the grid row height.
 
 4. In the card create profiles with **New profile**, drag time blocks into the grid and assign profiles to rooms.

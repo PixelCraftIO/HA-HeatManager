@@ -4,7 +4,7 @@ from __future__ import annotations
 
 DOMAIN = "heatmanager"
 NAME = "HeatManager"
-VERSION = "0.8.1"
+VERSION = "0.8.2"
 
 CONF_ROOMS = "rooms"
 CONF_ROOM_ID = "id"
