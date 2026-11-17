@@ -1,6 +1,6 @@
 /* HeatManager card – weekly heating profiles, room assignment, pause and window state.
  * Served and auto-loaded by the HeatManager integration. */
-const VERSION = "0.1.2";
+const VERSION = "0.2.0";
 const DAYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];
 const PALETTE = ["#f4a340", "#7e8ef1", "#3fb8c9", "#8bc34a", "#e57373", "#ba68c8", "#4db6ac", "#ffb74d"];
 const ICONS = ["mdi:radiator", "mdi:sofa", "mdi:bed", "mdi:teddy-bear", "mdi:shower", "mdi:desk", "mdi:silverware-fork-knife", "mdi:account-group", "mdi:dumbbell", "mdi:home-export-outline", "mdi:snowflake", "mdi:fire"];
@@ -33,6 +33,8 @@ const I18N = {
     noRooms: "Noch keine Räume. Lege sie unter Einstellungen › Geräte & Dienste › HeatManager › Konfigurieren an.",
     noProfiles: "Noch keine Heizprofile – lege mit „Neues Profil“ das erste an.",
     adminOnly: "Profile bearbeiten können nur Administratoren.",
+    override: "Übersteuern", overrideTitle: "{r} übersteuern", overrideFor: "Wie lange?", untilNext: "Bis zum nächsten Wechsel", untilNextAt: "Bis zum Wechsel um {t}",
+    overrideActive: "{v} bis {t}", overrideEnd: "Beenden", overrideHint: "Danach folgt der Raum wieder seinem Plan.", overrideHintManual: "Danach bekommt das Thermostat wieder seinen vorherigen Wert.",
   },
   en: {
     days: ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"],
@@ -59,6 +61,8 @@ const I18N = {
     noRooms: "No rooms yet. Add them under Settings › Devices & services › HeatManager › Configure.",
     noProfiles: "No heating profiles yet – create the first one with “New profile”.",
     adminOnly: "Only administrators can edit profiles.",
+    override: "Override", overrideTitle: "Override {r}", overrideFor: "For how long?", untilNext: "Until next change", untilNextAt: "Until the change at {t}",
+    overrideActive: "{v} until {t}", overrideEnd: "End", overrideHint: "Afterwards the room follows its plan again.", overrideHintManual: "Afterwards the thermostat gets its previous setpoint back.",
   },
 };
 
@@ -232,11 +236,14 @@ class HeatManagerCard extends HTMLElement {
       const cur = cl ? cl.attributes.current_temperature : null, tgt = cl ? cl.attributes.temperature : null;
       const unav = !cl || cl.state === "unavailable";
       const win = r.windows.some((wid) => h.states[wid] && h.states[wid].state === "on");
-      const next = r.next_change && r.next_temp != null ? `<small class="next">${this._t("next", { t: esc(this._fmtDate(r.next_change)), v: this._fmtT(r.next_temp) + "°" })}</small>` : "";
+      const next = r.override
+        ? `<small class="ovr"><ha-icon icon="mdi:thermometer-alert"></ha-icon>${this._t("overrideActive", { v: this._fmtT(r.override.temp) + "°", t: r.override.until ? esc(this._fmtDate(r.override.until)) : "…" })}</small>`
+        : r.next_change && r.next_temp != null ? `<small class="next">${this._t("next", { t: esc(this._fmtDate(r.next_change)), v: this._fmtT(r.next_temp) + "°" })}</small>` : "";
       return `<div class="room ${win ? "open" : ""}">
         <div class="rdot" style="background:${this._pcolor(r.profile)}"></div>
         <button class="rname" data-more="${esc(r.climates[0])}"><span>${esc(r.name)}${unav ? ` <small class="warn">${this._t("unreachable")}</small>` : ""}${win ? ` <small class="win"><ha-icon icon="mdi:window-open-variant"></ha-icon>${this._t("windowOpen")}</small>` : ""}</span>${next}</button>
         <div class="rtemp"><span>${cur != null ? this._fmtT(cur) + " °C" : "–"}</span><ha-icon icon="mdi:arrow-right-thin"></ha-icon><b style="color:${tgt != null ? tempColor(tgt) : "inherit"}">${tgt != null ? this._fmtT(tgt) + " °C" : "–"}</b></div>
+        <button class="ico ${r.override ? "act" : ""}" data-ovr="${esc(r.id)}" title="${this._t("override")}"><ha-icon icon="mdi:thermometer-chevron-up"></ha-icon></button>
         <select data-room="${esc(r.id)}">${options.map(([v, l]) => `<option value="${esc(v)}" ${v === r.profile ? "selected" : ""}>${esc(l)}</option>`).join("")}</select>
       </div>`;
     }).join("") : `<div class="empty">${this._t("noRooms")}</div>`;
@@ -303,6 +310,17 @@ class HeatManagerCard extends HTMLElement {
         <div class="dsub">${d.used.length ? this._t("delUsed", { r: d.used.map(esc).join(", ") }) : this._t("delUnused")}</div>
         <div class="dsub">${this._t("delFinal")}</div>
         <div class="dbtns"><span class="sp"></span><button class="btn" data-dact="cancel">${this._t("cancel")}</button><button class="btn dangerfill" data-dact="apply">${this._t("del")}</button></div>`;
+    } else if (d.kind === "override") {
+      const r = (this._data.rooms || []).find((x) => x.id === d.room) || {};
+      const opts = [[1, this._t("hours", { n: 1 })], [2, this._t("hours", { n: 2 })], [4, this._t("hours", { n: 4 })]];
+      if (r.plan_change) opts.push(["next", this._t("untilNextAt", { t: esc(this._fmtDate(r.plan_change)) })]);
+      body = `<div class="dtitle">${this._t("overrideTitle", { r: esc(r.name) })}</div>
+        ${stepper}
+        <div class="dsub">${this._t("overrideFor")}</div>
+        <div class="dchips">${opts.map(([v, l]) => `<button class="chip ${String(d.dur) === String(v) ? "on" : ""}" data-ddur="${v}">${l}</button>`).join("")}</div>
+        <div class="dsub">${this._t(r.plan_change ? "overrideHint" : "overrideHintManual")}</div>
+        <div class="dbtns">${r.override ? `<button class="btn danger" data-dact="endovr"><ha-icon icon="mdi:close"></ha-icon>${this._t("overrideEnd")}</button>` : ""}<span class="sp"></span>
+          <button class="btn" data-dact="cancel">${this._t("cancel")}</button><button class="btn primary" data-dact="apply">${this._t("apply")}</button></div>`;
     } else if (d.kind === "pausedate") {
       body = `<div class="dtitle">${this._t("pauseTitle")}</div>
         <div class="drow"><label>${this._t("dateTime")}<input type="datetime-local" id="ddt" value="${d.value}"></label></div>
@@ -320,6 +338,12 @@ class HeatManagerCard extends HTMLElement {
       const v = r.getElementById("ddt").value, dt = new Date(v);
       if (!v || isNaN(dt) || dt <= new Date()) { this._toast(this._t("errFuture")); return; }
       await this._ws({ type: "heatmanager/pause", until: dt.toISOString() }).catch(() => {});
+      this._closeDlg(); return;
+    }
+    if (d.kind === "override") {
+      const msg = { type: "heatmanager/room/override", room_id: d.room, temp: d.t };
+      if (d.dur === "next") msg.until_next_change = true; else msg.hours = Number(d.dur);
+      await this._ws(msg).catch(() => {});
       this._closeDlg(); return;
     }
     if (d.kind === "newprofile") {
@@ -401,6 +425,13 @@ class HeatManagerCard extends HTMLElement {
     r.querySelectorAll("select[data-room]").forEach((s) => s.addEventListener("change", () => {
       this._ws({ type: "heatmanager/room/set_profile", room_id: s.dataset.room, profile: s.value }).catch(() => {});
     }));
+    on("[data-ovr]", (b) => {
+      const r = this._data.rooms.find((x) => x.id === b.dataset.ovr); if (!r) return;
+      const cl = this._hass.states[r.climates[0]];
+      const base = r.override ? r.override.temp : Number((cl && cl.attributes.temperature) ?? r.target ?? 20) + 1;
+      this._dlg = { kind: "override", room: r.id, t: Math.max(5, Math.min(28, Math.round(base * 2) / 2)), dur: r.override ? (r.plan_change ? "next" : 2) : 2 };
+      this._render();
+    });
     on("[data-copyday]", (b, e) => { e.stopPropagation(); this._dlg = { kind: "copyday", day: b.dataset.copyday, copy: [] }; this._render(); });
     r.querySelectorAll(".track.edit").forEach((t) => {
       t.addEventListener("pointerdown", (e) => this._down(e, t));
@@ -426,8 +457,10 @@ class HeatManagerCard extends HTMLElement {
       if (a === "cancel") this._closeDlg();
       if (a === "apply") this._applyDlg();
       if (a === "delete") { this._draft(this._cur())[dlg.day].splice(dlg.idx, 1); this._closeDlg(); }
+      if (a === "endovr") { this._ws({ type: "heatmanager/room/clear_override", room_id: dlg.room }).catch(() => {}); this._closeDlg(); }
       if (a === "clearday") { this._draft(this._cur())[dlg.day] = []; this._closeDlg(); }
     });
+    on("[data-ddur]", (b) => { dlg.dur = b.dataset.ddur; this._render(); });
     on("[data-dicon]", (b) => { keep(); dlg.icon = b.dataset.dicon; this._render(); });
     on("[data-dt]", (b) => { keep(); dlg.t = Math.max(5, Math.min(28, Math.round((dlg.t + Number(b.dataset.dt)) * 10) / 10)); this._render(); });
     on("[data-dday]", (b) => { keep(); const k = b.dataset.dday; dlg.copy = dlg.copy.includes(k) ? dlg.copy.filter((x) => x !== k) : [...dlg.copy, k]; this._render(); });
@@ -613,6 +646,8 @@ ha-icon { --mdc-icon-size:18px; }
 .rname small.warn { color:var(--warning-color, #ff9800); }
 .rname small.win { color:#4fc3f7; font-weight:500; display:inline-flex; align-items:center; gap:3px; margin-left:4px; } .rname small.win ha-icon { --mdc-icon-size:15px; }
 .rname small.next { color:var(--secondary-text-color); font-size:.78em; }
+.rname small.ovr { color:var(--warning-color, #ff9800); font-size:.78em; display:inline-flex; align-items:center; gap:3px; } .rname small.ovr ha-icon { --mdc-icon-size:14px; }
+.ico.act { color:var(--warning-color, #ff9800); background:color-mix(in srgb, var(--warning-color, #ff9800) 18%, transparent); }
 .rtemp { display:flex; align-items:center; gap:2px; font-size:.9em; color:var(--secondary-text-color); white-space:nowrap; } .rtemp b { font-weight:600; }
 select { font:inherit; color:var(--primary-text-color); background:var(--card-background-color); border:1px solid var(--divider-color); border-radius:8px; padding:6px 8px; max-width:150px; }
 .legend { margin-top:8px; font-size:.8em; color:var(--secondary-text-color); }

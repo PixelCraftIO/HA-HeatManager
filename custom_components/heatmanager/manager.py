@@ -40,6 +40,7 @@ from .const import (
     DOMAIN,
     REASON_FROST,
     REASON_MANUAL,
+    REASON_OVERRIDE,
     REASON_PAUSED,
     REASON_PROFILE_BASE,
     REASON_PROFILE_BLOCK,
@@ -88,6 +89,8 @@ class RoomRuntime:
     window_open: bool = False
     window_timer: CALLBACK_TYPE | None = None
     snapshot: dict[str, float] = field(default_factory=dict)
+    # setpoints before a temporary override, restored afterwards when no plan applies
+    override_restore: dict[str, float] = field(default_factory=dict)
     retry_timers: dict[str, CALLBACK_TYPE] = field(default_factory=dict)
 
 
@@ -100,6 +103,8 @@ class HeatManager:
         self._store: Store[dict[str, Any]] = Store(hass, STORAGE_VERSION, f"{STORAGE_KEY}.{entry.entry_id}")
         self.profiles: dict[str, dict[str, Any]] = {}
         self.assignments: dict[str, str] = {}
+        # room id -> {"temp": float, "until": datetime | None}
+        self.overrides: dict[str, dict[str, Any]] = {}
         self.pause_active = False
         self.pause_until: datetime | None = None
         self.rooms: dict[str, Room] = {}
@@ -141,6 +146,12 @@ class HeatManager:
         self.pause_until = dt_util.parse_datetime(until) if until else None
         if self.pause_active and self.pause_until and self.pause_until <= dt_util.now():
             self.pause_active, self.pause_until = False, None
+        now = dt_util.now()
+        for room_id, raw in (data.get("overrides") or {}).items():
+            until = dt_util.parse_datetime(raw["until"]) if raw.get("until") else None
+            if room_id in self.rooms and (until is None or until > now):
+                self.overrides[room_id] = {"temp": float(raw["temp"]), "until": until}
+                self.runtime[room_id].override_restore = dict(raw.get("restore") or {})
         for room_id in self.rooms:
             value = self.assignments.get(room_id)
             if value not in self.profiles and value not in (ASSIGN_FROST, ASSIGN_MANUAL):
@@ -191,6 +202,14 @@ class HeatManager:
         return {
             "profiles": self.profiles,
             "assignments": self.assignments,
+            "overrides": {
+                room_id: {
+                    "temp": o["temp"],
+                    "until": o["until"].isoformat() if o["until"] else None,
+                    "restore": self.runtime[room_id].override_restore,
+                }
+                for room_id, o in self.overrides.items()
+            },
             "pause": {
                 "active": self.pause_active,
                 "until": self.pause_until.isoformat() if self.pause_until else None,
@@ -203,6 +222,12 @@ class HeatManager:
         now = now or dt_util.now()
         if self.runtime[room.id].window_open:
             return self.frost_temp, REASON_WINDOW
+        if (override := self.overrides.get(room.id)) and (override["until"] is None or override["until"] > now):
+            return override["temp"], REASON_OVERRIDE
+        return self._plan(room, now)
+
+    def _plan(self, room: Room, now: datetime) -> tuple[float | None, str]:
+        """Target without window and override: pause, frost, manual or profile."""
         if self.pause_active:
             return None, REASON_PAUSED
         assignment = self.assignments.get(room.id, ASSIGN_MANUAL)
@@ -218,6 +243,11 @@ class HeatManager:
     def evaluate(self, force: bool = False, room_ids: list[str] | None = None) -> None:
         """Recompute targets; send to thermostats when a target changes (or force)."""
         now = dt_util.now()
+        for room_id, override in list(self.overrides.items()):
+            if override["until"] is not None and override["until"] <= now:
+                self._end_override(room_id)
+                if room_ids is not None and room_id not in room_ids:
+                    room_ids = [*room_ids, room_id]
         for room in self.rooms.values():
             if room_ids is not None and room.id not in room_ids:
                 continue
@@ -239,6 +269,7 @@ class HeatManager:
         candidates = [
             when for pid in used if (profile := self.profiles.get(pid)) and (when := next_change(profile, now))
         ]
+        candidates += [o["until"] for o in self.overrides.values() if o["until"] is not None and o["until"] > now]
         if candidates:
             self._boundary_unsub = async_track_point_in_time(self.hass, self._on_boundary, min(candidates))
 
@@ -408,6 +439,66 @@ class HeatManager:
                 self.hass, callback(lambda _now: self.set_pause(False)), self.pause_until
             )
 
+    # -------------------------------------------------------------- overrides
+    @callback
+    def set_override(
+        self, room_id: str, temp: float, until: datetime | None = None, until_next_change: bool = False
+    ) -> datetime | None:
+        """Hold a room at a temperature until a moment (or the next change of its plan); return the end."""
+        if room_id not in self.rooms:
+            raise KeyError(room_id)
+        temp = float(temp)
+        if not TEMP_MIN <= temp <= TEMP_MAX:
+            raise ValueError("temperature out of range")
+        now = dt_util.now()
+        if until_next_change:
+            until = self.next_plan_change(room_id, now)
+            if until is None:
+                raise ValueError("room has no upcoming change")
+        if until is not None and until <= now:
+            raise ValueError("end must be in the future")
+        room, rt = self.rooms[room_id], self.runtime[room_id]
+        if room_id not in self.overrides:
+            rt.override_restore = {}
+            for entity_id in room.climates:
+                st = self.hass.states.get(entity_id)
+                if st and (cur := st.attributes.get(ATTR_TEMPERATURE)) is not None:
+                    rt.override_restore[entity_id] = float(cur)
+        self.overrides[room_id] = {"temp": round(temp, 1), "until": until}
+        self._save()
+        self.evaluate(force=True, room_ids=[room_id])
+        return until
+
+    @callback
+    def clear_override(self, room_id: str) -> None:
+        """End a room's override now and go back to its plan."""
+        if room_id not in self.rooms:
+            raise KeyError(room_id)
+        if room_id in self.overrides:
+            self._end_override(room_id)
+            self.evaluate(force=True, room_ids=[room_id])
+
+    @callback
+    def _end_override(self, room_id: str) -> None:
+        self.overrides.pop(room_id, None)
+        room, rt = self.rooms[room_id], self.runtime[room_id]
+        target, _ = self.compute(room)
+        if target is None:
+            # manual room or paused schedule: put back what was set before
+            for entity_id, temp in rt.override_restore.items():
+                self._send_climate(room, entity_id, temp, attempt=len(RETRY_DELAYS))
+        rt.override_restore = {}
+        rt.target = None
+        self._save()
+
+    def next_plan_change(self, room_id: str, now: datetime | None = None) -> datetime | None:
+        """When the room's own plan next changes its target (None for manual/frost rooms)."""
+        profile = self.profiles.get(self.assignments.get(room_id, ASSIGN_MANUAL))
+        if profile is None:
+            return None
+        when, _ = next_target(profile, now or dt_util.now())
+        return when
+
     # --------------------------------------------------------------- profiles
     @callback
     def save_profile(self, data: dict[str, Any], profile_id: str | None = None) -> str:
@@ -461,6 +552,9 @@ class HeatManager:
         if value not in self.profiles and value not in (ASSIGN_FROST, ASSIGN_MANUAL):
             raise ValueError(f"unknown profile {value}")
         self.assignments[room_id] = value
+        if room_id in self.overrides:
+            self.overrides.pop(room_id)
+            self.runtime[room_id].override_restore = {}
         self._save()
         self.runtime[room_id].target = None
         self.evaluate(force=True, room_ids=[room_id])
@@ -481,12 +575,22 @@ class HeatManager:
             "window_open": rt.window_open,
             "next_change": None,
             "next_temp": None,
+            "override": None,
+            "plan_change": None,
         }
+        now = dt_util.now()
         profile = self.profiles.get(assignment)
+        if (override := self.overrides.get(room.id)) is not None:
+            info["override"] = {
+                "temp": override["temp"],
+                "until": override["until"].isoformat() if override["until"] else None,
+            }
         if profile and rt.reason in (REASON_PROFILE_BLOCK, REASON_PROFILE_BASE):
-            when, temp = next_target(profile, dt_util.now())
+            when, temp = next_target(profile, now)
             info["next_change"] = when.isoformat() if when else None
             info["next_temp"] = temp
+        if profile and (when := self.next_plan_change(room.id, now)):
+            info["plan_change"] = when.isoformat()
         return info
 
     def as_dict(self) -> dict[str, Any]:

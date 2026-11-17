@@ -99,7 +99,8 @@
               "frost": "Frost protection",
               "window": "Window open",
               "paused": "Paused",
-              "manual": "Manual"
+              "manual": "Manual",
+              "override": "Override"
             }
           }
         }
@@ -129,6 +130,42 @@
     "resume": {
       "name": "Resume schedule",
       "description": "End the pause and apply the heating profiles again."
+    },
+    "override_room": {
+      "name": "Override room temperature",
+      "description": "Hold one room at a temperature for a while, then return to its plan.",
+      "fields": {
+        "room": {
+          "name": "Room",
+          "description": "Name or id of the HeatManager room."
+        },
+        "temperature": {
+          "name": "Temperature",
+          "description": "Temperature to hold."
+        },
+        "duration": {
+          "name": "Duration",
+          "description": "How long to hold it."
+        },
+        "until": {
+          "name": "Until",
+          "description": "When the room returns to its plan."
+        },
+        "until_next_change": {
+          "name": "Until next change",
+          "description": "Hold it until the room's profile changes the temperature next."
+        }
+      }
+    },
+    "clear_room_override": {
+      "name": "End room override",
+      "description": "Return the room to its plan now.",
+      "fields": {
+        "room": {
+          "name": "Room",
+          "description": "Name or id of the HeatManager room."
+        }
+      }
     }
   }
 }
