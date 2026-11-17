@@ -1,0 +1,134 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "HeatManager",
+        "description": "Allgemeine Einstellungen. Räume legst du danach über „Konfigurieren“ an.",
+        "data": {
+          "frost_temp": "Frostschutztemperatur",
+          "window_delay": "Fenster-Verzögerung"
+        },
+        "data_description": {
+          "frost_temp": "Gilt bei offenem Fenster und für Räume auf Frostschutz.",
+          "window_delay": "So lange muss ein Fenster offen sein, bevor die Heizung abgesenkt wird."
+        }
+      }
+    },
+    "abort": {
+      "already_configured": "HeatManager ist bereits eingerichtet.",
+      "single_instance_allowed": "HeatManager ist bereits eingerichtet."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "HeatManager",
+        "menu_options": {
+          "add_room": "Raum hinzufügen",
+          "edit_room": "Raum bearbeiten",
+          "remove_room": "Räume entfernen",
+          "settings": "Einstellungen"
+        }
+      },
+      "add_room": {
+        "title": "Raum hinzufügen",
+        "data": {
+          "name": "Name",
+          "climates": "Thermostate",
+          "windows": "Fenster-/Türkontakte",
+          "area": "Bereich"
+        },
+        "data_description": {
+          "climates": "Alle Thermostate des Raums bekommen dieselbe Solltemperatur.",
+          "windows": "Optional. Solange einer offen ist, geht der Raum auf Frostschutz."
+        }
+      },
+      "edit_room": {
+        "title": "Raum bearbeiten",
+        "data": {
+          "room": "Raum"
+        }
+      },
+      "edit_room_details": {
+        "title": "{room} bearbeiten",
+        "data": {
+          "name": "Name",
+          "climates": "Thermostate",
+          "windows": "Fenster-/Türkontakte",
+          "area": "Bereich"
+        }
+      },
+      "remove_room": {
+        "title": "Räume entfernen",
+        "data": {
+          "rooms": "Zu entfernende Räume"
+        }
+      },
+      "settings": {
+        "title": "Einstellungen",
+        "data": {
+          "frost_temp": "Frostschutztemperatur",
+          "window_delay": "Fenster-Verzögerung"
+        },
+        "data_description": {
+          "frost_temp": "Gilt bei offenem Fenster und für Räume auf Frostschutz.",
+          "window_delay": "So lange muss ein Fenster offen sein, bevor die Heizung abgesenkt wird."
+        }
+      }
+    },
+    "error": {
+      "no_climate": "Bitte mindestens ein Thermostat wählen.",
+      "name_exists": "Einen Raum mit diesem Namen gibt es schon."
+    }
+  },
+  "entity": {
+    "select": {
+      "profile": {
+        "name": "Heizprofil"
+      }
+    },
+    "sensor": {
+      "target": {
+        "name": "Zieltemperatur",
+        "state_attributes": {
+          "reason": {
+            "name": "Grund",
+            "state": {
+              "profile_block": "Zeitblock",
+              "profile_base": "Grundtemperatur",
+              "frost": "Frostschutz",
+              "window": "Fenster offen",
+              "paused": "Pausiert",
+              "manual": "Manuell"
+            }
+          }
+        }
+      }
+    },
+    "switch": {
+      "pause": {
+        "name": "Heizplan pausiert"
+      }
+    }
+  },
+  "services": {
+    "pause": {
+      "name": "Heizplan pausieren",
+      "description": "Pausiert alle Heizprofile. Die Thermostate behalten ihre aktuelle Temperatur. Ohne Dauer oder Ende gilt die Pause bis zum Fortsetzen.",
+      "fields": {
+        "duration": {
+          "name": "Dauer",
+          "description": "Wie lange pausiert wird."
+        },
+        "until": {
+          "name": "Bis",
+          "description": "Wann der Heizplan weiterläuft."
+        }
+      }
+    },
+    "resume": {
+      "name": "Heizplan fortsetzen",
+      "description": "Beendet die Pause und wendet die Heizprofile wieder an."
+    }
+  }
+}
