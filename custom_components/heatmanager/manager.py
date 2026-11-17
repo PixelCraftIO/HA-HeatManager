@@ -52,6 +52,7 @@ from .const import (
     DEFAULT_WINDOW_DELAY,
     DOMAIN,
     PROBLEM_NOT_ACCEPTING,
+    PROBLEM_NOT_RESPONDING,
     PROBLEM_UNAVAILABLE,
     REASON_AWAY,
     REASON_FROST,
@@ -112,7 +113,9 @@ class RoomRuntime:
     retry_timers: dict[str, CALLBACK_TYPE] = field(default_factory=dict)
     # thermostat -> what we last asked it for (after clamping)
     wanted: dict[str, float] = field(default_factory=dict)
-    # thermostat -> problem kind (not_accepting / unavailable)
+    # thermostat -> when we first sent the current wanted setpoint
+    sent_at: dict[str, datetime] = field(default_factory=dict)
+    # thermostat -> problem kind (not_accepting / not_responding / unavailable)
     problems: dict[str, str] = field(default_factory=dict)
     unavailable_since: dict[str, datetime] = field(default_factory=dict)
 
@@ -415,6 +418,10 @@ class HeatManager:
         name = (st.name if st else None) or entity_id
         if kind == PROBLEM_NOT_ACCEPTING:
             _LOGGER.warning("%s (%s) keeps ignoring the setpoint %.1f °C", name, room.name, temp or 0)
+        elif kind == PROBLEM_NOT_RESPONDING:
+            _LOGGER.warning(
+                "%s (%s) sends no updates any more, setpoint %.1f °C not confirmed", name, room.name, temp or 0
+            )
         else:
             _LOGGER.warning("%s (%s) has been unavailable for a long time", name, room.name)
         ir.async_create_issue(
@@ -460,10 +467,12 @@ class HeatManager:
             old()
         rt.wanted[entity_id] = temp
         if current is not None and abs(float(current) - temp) < 0.05:
-            if rt.problems.get(entity_id) == PROBLEM_NOT_ACCEPTING:
+            if rt.problems.get(entity_id) in (PROBLEM_NOT_ACCEPTING, PROBLEM_NOT_RESPONDING):
                 self._clear_problem(room, entity_id)
             return
         _LOGGER.debug("%s: setting %s to %.1f (attempt %d)", room.name, entity_id, temp, attempt + 1)
+        if attempt == 0:
+            rt.sent_at[entity_id] = dt_util.utcnow()
         self.hass.async_create_task(
             self.hass.services.async_call(
                 CLIMATE_DOMAIN,
@@ -487,7 +496,13 @@ class HeatManager:
             cur = st.attributes.get(ATTR_TEMPERATURE)
             if cur is None or abs(float(cur) - temp) >= 0.05:
                 if last:
-                    self._set_problem(room, entity_id, PROBLEM_NOT_ACCEPTING, temp)
+                    # No state report at all since the first command: the device is silent
+                    # (radio/battery), even if Home Assistant still shows its last values.
+                    sent = rt.sent_at.get(entity_id)
+                    silent = sent is not None and st.last_reported <= sent
+                    self._set_problem(
+                        room, entity_id, PROBLEM_NOT_RESPONDING if silent else PROBLEM_NOT_ACCEPTING, temp
+                    )
                 else:
                     _LOGGER.info("%s did not take %.1f °C, sending again", entity_id, temp)
                     self._send_climate(room, entity_id, temp, attempt + 1)

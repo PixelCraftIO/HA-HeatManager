@@ -207,6 +207,10 @@
     "thermostat_unavailable": {
       "title": "{thermostat} ist seit über einer Stunde nicht erreichbar",
       "description": "**{thermostat}** (`{entity_id}`, Raum {room}) ist seit mehr als einer Stunde nicht erreichbar, HeatManager kann es nicht steuern.\n\nBitte Batterien und Funkverbindung prüfen. Der Hinweis verschwindet, sobald das Thermostat wieder da ist."
+    },
+    "thermostat_not_responding": {
+      "title": "{thermostat} antwortet nicht",
+      "description": "HeatManager hat **{thermostat}** (`{entity_id}`, Raum {room}) innerhalb von etwa 13 Minuten viermal {temperature} °C geschickt, das Gerät hat seitdem aber gar nichts mehr gemeldet. Home Assistant zeigt eventuell noch die zuletzt bekannten Werte an.\n\nVermutlich ist die Funkverbindung weg oder das Gerät hängt: Batterien und Reichweite prüfen (z. B. in der Zigbee-Karte) oder die Batterien kurz herausnehmen. Tipp für Zigbee2MQTT: *Availability* aktivieren, dann erscheinen solche Geräte als nicht verfügbar. Der Hinweis verschwindet, sobald das Thermostat wieder einen Sollwert annimmt."
     }
   }
 }

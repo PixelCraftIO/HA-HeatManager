@@ -1,6 +1,6 @@
 /* HeatManager card – weekly heating profiles, room assignment, pause and window state.
  * Served and auto-loaded by the HeatManager integration. */
-const VERSION = "0.7.0";
+const VERSION = "0.7.1";
 const DAYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];
 const PALETTE = ["#f4a340", "#7e8ef1", "#3fb8c9", "#8bc34a", "#e57373", "#ba68c8", "#4db6ac", "#ffb74d"];
 const ICONS = ["mdi:radiator", "mdi:sofa", "mdi:bed", "mdi:teddy-bear", "mdi:shower", "mdi:desk", "mdi:silverware-fork-knife", "mdi:account-group", "mdi:dumbbell", "mdi:home-export-outline", "mdi:snowflake", "mdi:fire"];
@@ -38,7 +38,7 @@ const I18N = {
     today: "Heute", todayOff: "nicht gesteuert", editProfile: "Bearbeiten", editTitle: "Profil bearbeiten", color: "Farbe",
     vacation: "Urlaubsmodus", vacationSub: "bis {t} · Frostschutz in allen Räumen mit Plan", vacationBtn: "Urlaub…", vacationTitle: "Urlaub bis", vacationHint: "Bis dahin Frostschutz in allen Räumen mit Profil oder Frostschutz, danach läuft der Heizplan weiter. Räume auf Manuell bleiben unberührt.", vacationStart: "Urlaub starten", vacationEnd: "Urlaub beenden",
     away: "Niemand zu Hause · höchstens {t} °C", home: "Jemand zu Hause",
-    probNotAccepting: "{n} nimmt Sollwert nicht an", probUnavailable: "{n} seit über 1 Std. nicht erreichbar", probHint: "Details unter Einstellungen › Reparaturen",
+    probNotAccepting: "{n} nimmt Sollwert nicht an", probNotResponding: "{n} antwortet nicht", probUnavailable: "{n} seit über 1 Std. nicht erreichbar", probHint: "Details unter Einstellungen › Reparaturen",
     override: "Übersteuern", overrideTitle: "{r} übersteuern", overrideFor: "Wie lange?", untilNext: "Bis zum nächsten Wechsel", untilNextAt: "Bis zum Wechsel um {t}",
     overrideActive: "{v} bis {t}", overrideEnd: "Beenden", overrideHint: "Danach folgt der Raum wieder seinem Plan.", overrideHintManual: "Danach bekommt das Thermostat wieder seinen vorherigen Wert.",
   },
@@ -72,7 +72,7 @@ const I18N = {
     today: "Today", todayOff: "not controlled", editProfile: "Edit", editTitle: "Edit profile", color: "Colour",
     vacation: "Vacation", vacationSub: "until {t} · frost protection in all scheduled rooms", vacationBtn: "Vacation…", vacationTitle: "Vacation until", vacationHint: "Until then frost protection in all rooms with a profile or frost protection, then the schedule continues. Manual rooms stay untouched.", vacationStart: "Start vacation", vacationEnd: "End vacation",
     away: "Nobody home · at most {t} °C", home: "Somebody home",
-    probNotAccepting: "{n} ignores its setpoint", probUnavailable: "{n} unavailable for over 1 h", probHint: "Details under Settings › Repairs",
+    probNotAccepting: "{n} ignores its setpoint", probNotResponding: "{n} does not respond", probUnavailable: "{n} unavailable for over 1 h", probHint: "Details under Settings › Repairs",
     override: "Override", overrideTitle: "Override {r}", overrideFor: "For how long?", untilNext: "Until next change", untilNextAt: "Until the change at {t}",
     overrideActive: "{v} until {t}", overrideEnd: "End", overrideHint: "Afterwards the room follows its plan again.", overrideHintManual: "Afterwards the thermostat gets its previous setpoint back.",
   },
@@ -295,7 +295,7 @@ class HeatManagerCard extends HTMLElement {
       const probs = (r.problems || []).map((pr) => {
         const st = h.states[pr.entity_id];
         const n = r.climates.length > 1 ? ((st && st.attributes.friendly_name) || pr.entity_id) : "Thermostat";
-        return `<small class="prob" title="${this._t("probHint")}"><ha-icon icon="mdi:alert-circle"></ha-icon>${esc(this._t(pr.kind === "unavailable" ? "probUnavailable" : "probNotAccepting", { n }))}</small>`;
+        return `<small class="prob" title="${this._t("probHint")}"><ha-icon icon="mdi:alert-circle"></ha-icon>${esc(this._t(pr.kind === "unavailable" ? "probUnavailable" : pr.kind === "not_responding" ? "probNotResponding" : "probNotAccepting", { n }))}</small>`;
       }).join("");
       const flags = `${unav ? `<small class="warn"><ha-icon icon="mdi:wifi-off"></ha-icon>${this._t("unreachable")}</small>` : ""}${win ? `<small class="win"><ha-icon icon="mdi:window-open-variant"></ha-icon>${this._t("windowOpen")}</small>` : ""}${probs}${next}`;
       return `<div class="room ${win ? "open" : ""} ${probs ? "problem" : ""}" style="--pc:${this._pcolor(r.profile)}">
