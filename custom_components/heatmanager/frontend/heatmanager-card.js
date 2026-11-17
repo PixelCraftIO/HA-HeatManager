@@ -1,10 +1,11 @@
 /* HeatManager card – weekly heating profiles, room assignment, pause and window state.
  * Served and auto-loaded by the HeatManager integration. */
-const VERSION = "0.1.1";
+const VERSION = "0.1.2";
 const DAYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];
 const PALETTE = ["#f4a340", "#7e8ef1", "#3fb8c9", "#8bc34a", "#e57373", "#ba68c8", "#4db6ac", "#ffb74d"];
 const ICONS = ["mdi:radiator", "mdi:sofa", "mdi:bed", "mdi:teddy-bear", "mdi:shower", "mdi:desk", "mdi:silverware-fork-knife", "mdi:account-group", "mdi:dumbbell", "mdi:home-export-outline", "mdi:snowflake", "mdi:fire"];
 const SNAP = 15;
+const HOLD_MS = 350; // touch: press and hold this long before dragging
 
 const I18N = {
   de: {
@@ -16,6 +17,7 @@ const I18N = {
     profiles: "Heizprofile", newProfile: "Neues Profil", deleteProfile: "Profil löschen",
     base: "Grundtemperatur", baseHint: "(außerhalb der Zeitblöcke)",
     hint: "Im Raster ziehen = neuer Zeitblock · Block antippen = bearbeiten · Ränder ziehen = Zeit ändern",
+    hintTouch: "Wischen = scrollen · Antippen = bearbeiten · Gedrückt halten und ziehen = Block anlegen oder verschieben",
     unsaved: "Ungespeicherte Änderungen am Profil „{p}“", discard: "Verwerfen", save: "Speichern",
     rooms: "Räume & Profile", unreachable: "nicht erreichbar", windowOpen: "Fenster offen", next: "ab {t} → {v}",
     legend: "<b>Frostschutz</b> = {f} °C · <b>Manuell</b> = Raum wird nicht gesteuert · <b>Fenster offen</b> (ab {d} s) = {f} °C, danach zurück",
@@ -41,6 +43,7 @@ const I18N = {
     profiles: "Heating profiles", newProfile: "New profile", deleteProfile: "Delete profile",
     base: "Base temperature", baseHint: "(outside time blocks)",
     hint: "Drag in the grid = new block · tap a block = edit · drag edges = change time",
+    hintTouch: "Swipe = scroll · tap = edit · press and hold, then drag = create or move a block",
     unsaved: "Unsaved changes to profile “{p}”", discard: "Discard", save: "Save",
     rooms: "Rooms & profiles", unreachable: "unreachable", windowOpen: "Window open", next: "from {t} → {v}",
     legend: "<b>Frost protection</b> = {f} °C · <b>Manual</b> = room not controlled · <b>Window open</b> (after {d} s) = {f} °C, then back",
@@ -211,7 +214,7 @@ class HeatManagerCard extends HTMLElement {
             <div class="step">${admin ? `<button class="ico" data-base="-0.5"><ha-icon icon="mdi:minus"></ha-icon></button>` : ""}
               <b style="color:${tempColor(p.base_temp)}">${this._fmtT(p.base_temp)} °C</b>
               ${admin ? `<button class="ico" data-base="0.5"><ha-icon icon="mdi:plus"></ha-icon></button>` : ""}</div></div>
-          <div class="hint"><ha-icon icon="mdi:gesture-swipe-vertical"></ha-icon>${admin ? this._t("hint") : this._t("adminOnly")}</div>
+          <div class="hint"><ha-icon icon="mdi:gesture-swipe-vertical"></ha-icon>${admin ? this._t(window.matchMedia && matchMedia("(pointer: coarse)").matches ? "hintTouch" : "hint") : this._t("adminOnly")}</div>
           ${admin ? `<button class="btn danger small" data-act="del-profile"><ha-icon icon="mdi:delete-outline"></ha-icon>${this._t("deleteProfile")}</button>` : ""}
         </div>
         <div class="gridwrap"><div class="grid">
@@ -399,12 +402,17 @@ class HeatManagerCard extends HTMLElement {
       this._ws({ type: "heatmanager/room/set_profile", room_id: s.dataset.room, profile: s.value }).catch(() => {});
     }));
     on("[data-copyday]", (b, e) => { e.stopPropagation(); this._dlg = { kind: "copyday", day: b.dataset.copyday, copy: [] }; this._render(); });
-    r.querySelectorAll(".track.edit").forEach((t) => t.addEventListener("pointerdown", (e) => this._down(e, t)));
+    r.querySelectorAll(".track.edit").forEach((t) => {
+      t.addEventListener("pointerdown", (e) => this._down(e, t));
+      // while a held block is dragged, the page must not scroll along
+      t.addEventListener("touchmove", (e) => { if (this._drag && this._drag.active) e.preventDefault(); }, { passive: false });
+      t.addEventListener("contextmenu", (e) => e.preventDefault());
+    });
 
     const dlg = this._dlg;
     if (!dlg) return;
     const ov = r.querySelector(".overlay");
-    ov.addEventListener("click", (e) => { if (e.target === ov) this._closeDlg(); });
+    ov.addEventListener("click", (e) => { if (e.target === ov && Date.now() - (this._dlgAt || 0) > 500) this._closeDlg(); });
     const keep = () => {
       const f = r.getElementById("dfrom"), t = r.getElementById("dto"), n = r.getElementById("dname"), tp = r.getElementById("dtpl");
       if (f) dlg.from = toMin(f.value || "00:00");
@@ -436,38 +444,60 @@ class HeatManagerCard extends HTMLElement {
   /* ---------------- dragging in the grid ---------------- */
   _down(e, track) {
     if (e.button !== undefined && e.button !== 0) return;
+    if (this._drag) return;
     const p = this._cur(); if (!p) return;
     const day = track.dataset.day, pxm = this._c.hour_height / 60, rect = track.getBoundingClientRect();
     const minAt = (ev) => snap((ev.clientY - rect.top) / pxm);
     const list = this._week(p)[day];
     const blkEl = e.target.closest(".blk");
+    // Touch: a normal swipe scrolls the page; press and hold first to drag
+    const touch = e.pointerType !== "mouse";
     let drag;
     if (blkEl) {
       const idx = Number(blkEl.dataset.idx), b = list[idx];
       const lo = idx > 0 ? list[idx - 1].to : 0, hi = idx < list.length - 1 ? list[idx + 1].from : 1440;
-      drag = { mode: e.target.dataset.h || "move", day, idx, lo, hi, from: b.from, to: b.to, t: b.t, origFrom: b.from, origTo: b.to, startY: e.clientY, startMin: minAt(e), el: blkEl, moved: false };
+      drag = { mode: e.target.dataset.h || "move", day, idx, lo, hi, from: b.from, to: b.to, t: b.t, origFrom: b.from, origTo: b.to, startMin: minAt(e), el: blkEl };
     } else {
       const m = minAt(e);
       if (list.some((b) => m >= b.from && m < b.to)) return;
       const lo = list.filter((b) => b.to <= m).reduce((a, b) => Math.max(a, b.to), 0);
       const hi = list.filter((b) => b.from >= m).reduce((a, b) => Math.min(a, b.from), 1440);
-      const ghost = document.createElement("div"); ghost.className = "blk ghost"; track.appendChild(ghost);
-      drag = { mode: "create", day, lo, hi, start: m, cur: m, el: ghost, startY: e.clientY, moved: false };
+      drag = { mode: "create", day, lo, hi, start: m, cur: m, el: null };
     }
-    // A finger always wobbles a little: only count it as dragging beyond this distance
-    drag.slop = e.pointerType === "mouse" ? 4 : 12;
-    e.preventDefault();
-    try { track.setPointerCapture(e.pointerId); } catch (_) { /* ignore */ }
+    Object.assign(drag, { startX: e.clientX, startY: e.clientY, moved: false, active: !touch, pid: e.pointerId,
+      // a finger always wobbles a little: only count it as dragging beyond this distance
+      slop: touch ? 12 : 4 });
     this._drag = drag;
     const upd = () => {
-      const d = this._drag;
+      const d = this._drag; if (!d || !d.el) return;
       const f = d.mode === "create" ? Math.min(d.start, d.cur) : d.from, t = d.mode === "create" ? Math.max(d.start, d.cur) : d.to;
       d.el.style.top = f * pxm + "px"; d.el.style.height = Math.max(4, (t - f) * pxm) + "px";
       if (d.mode === "create") d.el.innerHTML = t - f >= SNAP ? `<div class="bs">${hm(f)}–${hm(t)}</div>` : "";
       else { const bs = d.el.querySelector(".bs"); if (bs) bs.textContent = `${hm(f)}–${hm(t)}`; }
     };
+    const activate = () => {
+      const d = this._drag; if (!d || d.active) return;
+      d.active = true; d.timer = null;
+      if (d.mode === "create") { d.el = document.createElement("div"); d.el.className = "blk ghost"; track.appendChild(d.el); }
+      d.el.classList.add("lift"); track.classList.add("dragging");
+      try { track.setPointerCapture(d.pid); } catch (_) { /* ignore */ }
+      try { navigator.vibrate && navigator.vibrate(15); } catch (_) { /* ignore */ }
+      upd();
+    };
+    const cleanup = () => {
+      track.removeEventListener("pointermove", move); track.removeEventListener("pointerup", up); track.removeEventListener("pointercancel", cancel);
+      track.classList.remove("dragging");
+      const d = this._drag; this._drag = null;
+      if (d && d.timer) clearTimeout(d.timer);
+      return d;
+    };
     const move = (ev) => {
-      const d = this._drag; if (!d) return;
+      const d = this._drag; if (!d || ev.pointerId !== d.pid) return;
+      if (!d.active) {
+        // finger moved before the hold time: it is a scroll, let the browser have it
+        if (Math.hypot(ev.clientX - d.startX, ev.clientY - d.startY) > 10) { cleanup(); if (this._pending) this._render(); }
+        return;
+      }
       if (Math.abs(ev.clientY - d.startY) > d.slop) d.moved = true;
       if (!d.moved) return;
       const m = minAt(ev);
@@ -477,11 +507,15 @@ class HeatManagerCard extends HTMLElement {
       else { const len = d.to - d.from; let nf = snap(d.from + (m - d.startMin)); nf = Math.max(d.lo, Math.min(d.hi - len, nf)); d.startMin += nf - d.from; d.to = nf + len; d.from = nf; }
       upd();
     };
-    const up = () => {
-      track.removeEventListener("pointermove", move); track.removeEventListener("pointerup", up); track.removeEventListener("pointercancel", up);
-      const d = this._drag; this._drag = null; if (!d) return;
+    const cancel = (ev) => {
+      const d = this._drag; if (!d || ev.pointerId !== d.pid) return;
+      cleanup(); this._render();
+    };
+    const up = (ev) => {
+      const d0 = this._drag; if (!d0 || ev.pointerId !== d0.pid) return;
+      const d = cleanup();
       if (d.mode === "create") {
-        d.el.remove();
+        if (d.el) d.el.remove();
         let f = Math.min(d.start, d.cur), t = Math.max(d.start, d.cur);
         if (t - f < SNAP) { f = d.start; t = Math.min(d.hi, f + 60); if (t - f < SNAP) { this._render(); return; } }
         this._dlg = { kind: "block", day: d.day, idx: null, from: f, to: t, t: this._lastT || this._c.default_temp, copy: [] };
@@ -491,10 +525,17 @@ class HeatManagerCard extends HTMLElement {
       } else {
         this._draft(p)[d.day][d.idx] = { from: d.from, to: d.to, t: d.t };
       }
+      // the click that follows a tap must not land on the new overlay and close it right away
+      this._dlgAt = Date.now();
       this._render();
     };
-    track.addEventListener("pointermove", move); track.addEventListener("pointerup", up); track.addEventListener("pointercancel", up);
-    upd();
+    track.addEventListener("pointermove", move); track.addEventListener("pointerup", up); track.addEventListener("pointercancel", cancel);
+    if (touch) {
+      drag.timer = setTimeout(activate, HOLD_MS);
+    } else {
+      e.preventDefault();
+      activate();
+    }
   }
 }
 
@@ -550,9 +591,11 @@ ha-icon { --mdc-icon-size:18px; }
 .hlabel { position:absolute; right:4px; transform:translateY(-50%); font-size:.7em; color:var(--secondary-text-color); }
 .hlabel:first-child { transform:none; }
 .track { position:relative; border-radius:10px; background-color:var(--secondary-background-color); background-image:linear-gradient(to bottom, var(--divider-color) 1px, transparent 1px); user-select:none; }
-.track.edit { touch-action:none; cursor:crosshair; }
+.track.edit { touch-action:pan-x pan-y; cursor:crosshair; -webkit-touch-callout:none; -webkit-user-select:none; }
+.track.dragging { touch-action:none; }
 .blk { position:absolute; left:3px; right:3px; border-radius:8px; color:#fff; overflow:hidden; box-shadow:0 1px 3px rgba(0,0,0,.35); display:flex; flex-direction:column; align-items:center; justify-content:center; text-shadow:0 1px 2px rgba(0,0,0,.4); }
-.track.edit .blk { cursor:grab; touch-action:none; }
+.track.edit .blk { cursor:grab; }
+.blk.lift { box-shadow:0 0 0 2px var(--primary-color), 0 6px 16px rgba(0,0,0,.45); z-index:3; }
 .blk.ghost { background:color-mix(in srgb, var(--primary-color) 55%, transparent); border:2px dashed var(--primary-color); box-shadow:none; }
 .bt { font-weight:700; font-size:.9em; line-height:1.1; } .bs { font-size:.68em; opacity:.95; line-height:1.1; text-align:center; }
 .hdl { position:absolute; left:0; right:0; height:9px; cursor:ns-resize; } .hdl.top { top:0; } .hdl.bot { bottom:0; }
