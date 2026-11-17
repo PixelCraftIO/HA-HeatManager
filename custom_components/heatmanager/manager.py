@@ -44,6 +44,7 @@ from .const import (
     CONF_ROOMS,
     CONF_WINDOW_DELAY,
     CONF_WINDOWS,
+    DAYS,
     DEFAULT_AWAY_DELAY,
     DEFAULT_AWAY_TEMP,
     DEFAULT_BASE_TEMP,
@@ -70,7 +71,7 @@ from .const import (
     TEMP_MIN,
     UNAVAILABLE_PROBLEM_AFTER,
 )
-from .schedule import next_change, next_target, normalize_week, profile_target
+from .schedule import MINUTES_PER_DAY, next_change, next_target, normalize_week, parse_time, profile_target
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -285,13 +286,13 @@ class HeatManager:
             return override["temp"], REASON_OVERRIDE
         return self._plan(room, now)
 
-    def _plan(self, room: Room, now: datetime) -> tuple[float | None, str]:
+    def _plan(self, room: Room, now: datetime, away: bool | None = None) -> tuple[float | None, str]:
         """Target without window and override: vacation, pause, frost, manual or profile (lowered when away)."""
         assignment = self.assignments.get(room.id, ASSIGN_MANUAL)
         controlled = assignment == ASSIGN_FROST or assignment in self.profiles
         if controlled and self.vacation_until is not None and self.vacation_until > now:
             return self.frost_temp, REASON_VACATION
-        if self.pause_active:
+        if self.pause_active and (self.pause_until is None or self.pause_until > now):
             return None, REASON_PAUSED
         if assignment == ASSIGN_FROST:
             return self.frost_temp, REASON_FROST
@@ -299,9 +300,49 @@ class HeatManager:
         if profile is None:
             return None, REASON_MANUAL
         temp, in_block = profile_target(profile, now)
-        if self.away and temp > self.away_temp:
+        if (self.away if away is None else away) and temp > self.away_temp:
             return self.away_temp, REASON_AWAY
         return temp, REASON_PROFILE_BLOCK if in_block else REASON_PROFILE_BASE
+
+    def today(self, room: Room, now: datetime | None = None) -> list[list[Any]]:
+        """Today's planned course as [from_min, to_min, temp or None, reason] (without windows and presence)."""
+        now = now or dt_util.now()
+        midnight = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        day = DAYS[now.weekday()]
+        cuts = {0, MINUTES_PER_DAY}
+        profile = self.profiles.get(self.assignments.get(room.id, ASSIGN_MANUAL))
+        if profile:
+            for block in (profile.get("week") or {}).get(day, []):
+                cuts.add(parse_time(block["from"]))
+                cuts.add(parse_time(block["to"]) or MINUTES_PER_DAY)
+        override = self.overrides.get(room.id)
+        now_min = int((now - midnight).total_seconds() // 60)
+        if override:
+            cuts.add(now_min)  # an override only counts from now on
+        for moment in (
+            override["until"] if override else None,
+            self.vacation_until,
+            self.pause_until if self.pause_active else None,
+        ):
+            if moment is not None:
+                minute = (dt_util.as_local(moment) - midnight).total_seconds() / 60
+                if 0 < minute < MINUTES_PER_DAY:
+                    cuts.add(int(-(-minute // 1)))  # round up to the full minute
+        points = sorted(cuts)
+        out: list[list[Any]] = []
+        for start, end in zip(points, points[1:], strict=False):
+            moment = midnight + timedelta(minutes=start)
+            ov = (
+                override
+                if override and start >= now_min and (override["until"] is None or override["until"] > moment)
+                else None
+            )
+            temp, reason = (ov["temp"], REASON_OVERRIDE) if ov else self._plan(room, moment, away=False)
+            if out and out[-1][2] == temp and out[-1][3] == reason:
+                out[-1][1] = end
+            else:
+                out.append([start, end, temp, reason])
+        return out
 
     @callback
     def evaluate(self, force: bool = False, room_ids: list[str] | None = None) -> None:
@@ -719,9 +760,13 @@ class HeatManager:
                 profile_id, n = f"{base_id}_{n}", n + 1
         elif profile_id not in self.profiles:
             raise KeyError(profile_id)
+        color = data.get("color") or None
+        if color is not None and not re.fullmatch(r"#[0-9a-fA-F]{6}", str(color)):
+            raise ValueError("invalid color")
         self.profiles[profile_id] = {
             "name": name,
             "icon": data.get("icon") or "mdi:radiator",
+            "color": color,
             "base_temp": round(base, 1),
             "week": week,
         }
@@ -777,6 +822,7 @@ class HeatManager:
             "problems": [{"entity_id": e, "kind": k} for e, k in rt.problems.items()],
         }
         now = dt_util.now()
+        info["today"] = self.today(room, now)
         profile = self.profiles.get(assignment)
         if (override := self.overrides.get(room.id)) is not None:
             info["override"] = {

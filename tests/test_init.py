@@ -522,6 +522,32 @@ async def test_vacation_leaves_manual_rooms(hass: HomeAssistant, setup) -> None:
     assert calls == []
 
 
+async def test_today_timeline_and_profile_edit(hass: HomeAssistant, setup) -> None:
+    manager, _, _, _ = setup
+    pid = manager.save_profile({"name": "Kinder", "base_temp": 17, "week": WEEK_ALL_DAY})
+    manager.set_assignment("r1", pid)
+    room = manager.rooms["r1"]
+    assert manager.today(room) == [
+        [0, 360, 17.0, "profile_base"],
+        [360, 1320, 21.0, "profile_block"],
+        [1320, 1440, 17.0, "profile_base"],
+    ]
+
+    manager.set_override("r1", 23, until=dt_util.now() + timedelta(hours=2))  # 12:00 - 14:00
+    assert manager.today(room)[1:4] == [
+        [360, 720, 21.0, "profile_block"],
+        [720, 840, 23.0, "override"],
+        [840, 1320, 21.0, "profile_block"],
+    ]
+
+    # rename, new icon and color keep the id and the assignment
+    manager.save_profile({**manager.profiles[pid], "name": "Kids", "icon": "mdi:bed", "color": "#123abc"}, pid)
+    assert manager.profiles[pid]["name"] == "Kids" and manager.profiles[pid]["color"] == "#123abc"
+    assert manager.assignments["r1"] == pid
+    with pytest.raises(ValueError):
+        manager.save_profile({**manager.profiles[pid], "color": "red"}, pid)
+
+
 async def test_setup_component_registers_services(hass: HomeAssistant) -> None:
     assert await async_setup_component(hass, DOMAIN, {})
     assert hass.services.has_service(DOMAIN, "pause")

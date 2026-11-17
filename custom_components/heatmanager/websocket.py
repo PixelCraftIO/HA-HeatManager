@@ -70,6 +70,7 @@ _BLOCK = vol.Schema({vol.Required("from"): str, vol.Required("to"): str, vol.Req
         vol.Optional("profile_id"): str,
         vol.Required("name"): str,
         vol.Optional("icon"): str,
+        vol.Optional("color"): vol.Any(None, str),
         vol.Optional("base_temp"): vol.Coerce(float),
         vol.Optional("week"): {str: [_BLOCK]},
     }
@@ -80,7 +81,7 @@ def ws_save_profile(hass: HomeAssistant, connection: websocket_api.ActiveConnect
     manager = _manager_or_error(hass, connection, msg["id"])
     if manager is None:
         return
-    data = {k: msg[k] for k in ("name", "icon", "base_temp", "week") if k in msg}
+    data = {k: msg[k] for k in ("name", "icon", "color", "base_temp", "week") if k in msg}
     existing = manager.profiles.get(msg.get("profile_id", ""))
     if existing:
         data = {**existing, **data}

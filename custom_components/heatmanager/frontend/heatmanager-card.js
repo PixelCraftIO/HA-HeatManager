@@ -1,6 +1,6 @@
 /* HeatManager card – weekly heating profiles, room assignment, pause and window state.
  * Served and auto-loaded by the HeatManager integration. */
-const VERSION = "0.4.0";
+const VERSION = "0.5.0";
 const DAYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];
 const PALETTE = ["#f4a340", "#7e8ef1", "#3fb8c9", "#8bc34a", "#e57373", "#ba68c8", "#4db6ac", "#ffb74d"];
 const ICONS = ["mdi:radiator", "mdi:sofa", "mdi:bed", "mdi:teddy-bear", "mdi:shower", "mdi:desk", "mdi:silverware-fork-knife", "mdi:account-group", "mdi:dumbbell", "mdi:home-export-outline", "mdi:snowflake", "mdi:fire"];
@@ -33,6 +33,7 @@ const I18N = {
     noRooms: "Noch keine Räume. Lege sie unter Einstellungen › Geräte & Dienste › HeatManager › Konfigurieren an.",
     noProfiles: "Noch keine Heizprofile – lege mit „Neues Profil“ das erste an.",
     adminOnly: "Profile bearbeiten können nur Administratoren.",
+    today: "Heute", todayOff: "nicht gesteuert", editProfile: "Bearbeiten", editTitle: "Profil bearbeiten", color: "Farbe",
     vacation: "Urlaubsmodus", vacationSub: "bis {t} · Frostschutz in allen Räumen mit Plan", vacationBtn: "Urlaub…", vacationTitle: "Urlaub bis", vacationHint: "Bis dahin Frostschutz in allen Räumen mit Profil oder Frostschutz, danach läuft der Heizplan weiter. Räume auf Manuell bleiben unberührt.", vacationStart: "Urlaub starten", vacationEnd: "Urlaub beenden",
     away: "Niemand zu Hause · höchstens {t} °C", home: "Jemand zu Hause",
     probNotAccepting: "{n} nimmt Sollwert nicht an", probUnavailable: "{n} seit über 1 Std. nicht erreichbar", probHint: "Details unter Einstellungen › Reparaturen",
@@ -64,6 +65,7 @@ const I18N = {
     noRooms: "No rooms yet. Add them under Settings › Devices & services › HeatManager › Configure.",
     noProfiles: "No heating profiles yet – create the first one with “New profile”.",
     adminOnly: "Only administrators can edit profiles.",
+    today: "Today", todayOff: "not controlled", editProfile: "Edit", editTitle: "Edit profile", color: "Colour",
     vacation: "Vacation", vacationSub: "until {t} · frost protection in all scheduled rooms", vacationBtn: "Vacation…", vacationTitle: "Vacation until", vacationHint: "Until then frost protection in all rooms with a profile or frost protection, then the schedule continues. Manual rooms stay untouched.", vacationStart: "Start vacation", vacationEnd: "End vacation",
     away: "Nobody home · at most {t} °C", home: "Somebody home",
     probNotAccepting: "{n} ignores its setpoint", probUnavailable: "{n} unavailable for over 1 h", probHint: "Details under Settings › Repairs",
@@ -137,7 +139,11 @@ class HeatManagerCard extends HTMLElement {
 
   _profiles() { return this._data?.profiles || []; }
   _cur() { return this._profiles().find((p) => p.id === this._sel); }
-  _pcolor(id) { const i = this._profiles().findIndex((p) => p.id === id); return i < 0 ? "var(--disabled-text-color)" : PALETTE[i % PALETTE.length]; }
+  _pcolor(id) {
+    const ps = this._profiles(), i = ps.findIndex((p) => p.id === id);
+    if (i < 0) return "var(--disabled-text-color)";
+    return ps[i].color || PALETTE[i % PALETTE.length];
+  }
 
   _week(p) {
     if (this._drafts[p.id]) return this._drafts[p.id];
@@ -209,7 +215,7 @@ class HeatManagerCard extends HTMLElement {
 
     const tabs = this._profiles().map((q, i) => {
       const n = data.rooms.filter((r) => r.profile === q.id).length;
-      return `<button class="tab ${q.id === this._sel ? "sel" : ""}" data-tab="${esc(q.id)}" style="--pc:${PALETTE[i % PALETTE.length]}">
+      return `<button class="tab ${q.id === this._sel ? "sel" : ""}" data-tab="${esc(q.id)}" style="--pc:${this._pcolor(q.id)}">
         <ha-icon icon="${esc(q.icon || "mdi:radiator")}"></ha-icon><span>${esc(q.name)}${this._drafts[q.id] ? " •" : ""}</span><em>${n}</em></button>`;
     }).join("") + (admin ? `<button class="tab add" data-act="new-profile"><ha-icon icon="mdi:plus"></ha-icon><span>${this._t("newProfile")}</span></button>` : "");
 
@@ -234,7 +240,8 @@ class HeatManagerCard extends HTMLElement {
               <b style="color:${tempColor(p.base_temp)}">${this._fmtT(p.base_temp)} °C</b>
               ${admin ? `<button class="ico" data-base="0.5"><ha-icon icon="mdi:plus"></ha-icon></button>` : ""}</div></div>
           <div class="hint"><ha-icon icon="mdi:gesture-swipe-vertical"></ha-icon>${admin ? this._t(window.matchMedia && matchMedia("(pointer: coarse)").matches ? "hintTouch" : "hint") : this._t("adminOnly")}</div>
-          ${admin ? `<button class="btn danger small" data-act="del-profile"><ha-icon icon="mdi:delete-outline"></ha-icon>${this._t("deleteProfile")}</button>` : ""}
+          ${admin ? `<span class="pbtns"><button class="btn small" data-act="edit-profile"><ha-icon icon="mdi:pencil"></ha-icon>${this._t("editProfile")}</button>` : ""}
+          ${admin ? `<button class="btn danger small" data-act="del-profile"><ha-icon icon="mdi:delete-outline"></ha-icon>${this._t("deleteProfile")}</button></span>` : ""}
         </div>
         <div class="gridwrap"><div class="grid">
           <div class="axis"><div class="dhead"></div><div class="axtrack" style="height:${24 * hh}px">${axis}</div></div>${cols}
@@ -268,9 +275,22 @@ class HeatManagerCard extends HTMLElement {
       </div>`;
     }).join("") : `<div class="empty">${this._t("noRooms")}</div>`;
 
+    let todayHtml = "";
+    if (c.show_today !== false && data.rooms.some((r) => r.today)) {
+      const rowsT = data.rooms.map((r) => `<div class="trow"><span class="tname">${esc(r.name)}</span><div class="tbar">${(r.today || []).map(([f, t, v, why]) => {
+        const w = (t - f) / 14.4, label = v != null && w > 6 ? `${this._fmtT(v)}°` : "";
+        const tip = `${hm(f)}–${hm(t)} · ${v != null ? this._fmtT(v) + " °C" : this._t("todayOff")}`;
+        return `<div class="tseg ${v == null ? "off" : ""} ${why === "override" ? "ovr" : ""}" style="left:${f / 14.4}%;width:${w}%;${v != null ? `background:${tempColor(v)}` : ""}" title="${esc(tip)}">${label}</div>`;
+      }).join("")}<div class="tnow"></div></div></div>`).join("");
+      const ticks = [0, 6, 12, 18, 24].map((x) => `<span style="left:${x * 100 / 24}%">${pad(x)}</span>`).join("");
+      todayHtml = `<div class="sec"><div class="stitle"><ha-icon icon="mdi:chart-timeline"></ha-icon>${this._t("today")}</div>
+        <div class="today">${rowsT}<div class="trow"><span class="tname"></span><div class="tticks">${ticks}</div></div></div></div>`;
+    }
+
     this.shadowRoot.innerHTML = `<style>${STYLE}</style>
       <ha-card>
         ${pauseHtml}
+        ${todayHtml}
         <div class="sec"><div class="stitle"><ha-icon icon="mdi:calendar-week"></ha-icon>${this._t("profiles")}</div><div class="tabs">${tabs}</div>${profHtml}</div>
         <div class="sec"><div class="stitle"><ha-icon icon="mdi:home-thermometer"></ha-icon>${this._t("rooms")}</div><div class="rooms">${rooms}</div>
           <div class="legend">${this._t("legend", { f: this._fmtT(data.settings.frost_temp), d: data.settings.window_delay })}</div></div>
@@ -283,6 +303,7 @@ class HeatManagerCard extends HTMLElement {
   _updateNow() {
     if (!this.shadowRoot) return;
     const now = new Date(), di = (now.getDay() + 6) % 7, m = now.getHours() * 60 + now.getMinutes();
+    this.shadowRoot.querySelectorAll(".tnow").forEach((el) => { el.style.left = (m / 14.4) + "%"; });
     this.shadowRoot.querySelectorAll(".now").forEach((el) => {
       const show = el.dataset.nowday === DAYS[di];
       el.style.display = show ? "block" : "none";
@@ -314,12 +335,16 @@ class HeatManagerCard extends HTMLElement {
         <div class="dsub">${this._t("copyHint")}</div>
         <div class="dbtns"><button class="btn danger" data-dact="clearday"><ha-icon icon="mdi:eraser"></ha-icon>${this._t("clearDay")}</button><span class="sp"></span>
           <button class="btn" data-dact="cancel">${this._t("cancel")}</button><button class="btn primary" data-dact="apply">${this._t("copy")}</button></div>`;
+    } else if (d.kind === "editprofile") {
+      body = `<div class="dtitle">${this._t("editTitle")}</div>
+        <div class="drow"><label>${this._t("name")}<input type="text" id="dname" maxlength="30" value="${esc(d.name)}"></label></div>
+        ${this._lookHtml(d)}
+        <div class="dbtns"><span class="sp"></span><button class="btn" data-dact="cancel">${this._t("cancel")}</button><button class="btn primary" data-dact="apply">${this._t("save")}</button></div>`;
     } else if (d.kind === "newprofile") {
       const tpl = this._profiles().map((q) => `<option value="${esc(q.id)}" ${d.template === q.id ? "selected" : ""}>${this._t("copyOf", { p: esc(q.name) })}</option>`).join("");
       body = `<div class="dtitle">${this._t("newTitle")}</div>
         <div class="drow"><label>${this._t("name")}<input type="text" id="dname" maxlength="30" placeholder="${this._t("namePh")}" value="${esc(d.name)}"></label></div>
-        <div class="dsub">${this._t("icon")}</div>
-        <div class="dchips">${ICONS.map((i) => `<button class="chip icon ${d.icon === i ? "on" : ""}" data-dicon="${i}"><ha-icon icon="${i}"></ha-icon></button>`).join("")}</div>
+        ${this._lookHtml(d)}
         <div class="drow"><label>${this._t("startWith")}<select id="dtpl"><option value="">${this._t("empty")}</option>${tpl}</select></label></div>
         <div class="dsub">${this._t("base")} ${this._t("baseHint")}</div>
         ${stepper}
@@ -351,6 +376,13 @@ class HeatManagerCard extends HTMLElement {
     return `<div class="overlay"><div class="dlg">${body}</div></div>`;
   }
 
+  _lookHtml(d) {
+    return `<div class="dsub">${this._t("icon")}</div>
+      <div class="dchips">${ICONS.map((i) => `<button class="chip icon ${d.icon === i ? "on" : ""}" data-dicon="${i}"><ha-icon icon="${i}"></ha-icon></button>`).join("")}</div>
+      <div class="dsub">${this._t("color")}</div>
+      <div class="dchips">${PALETTE.map((c) => `<button class="swatch ${d.color === c ? "on" : ""}" data-dcolor="${c}" style="background:${c}"></button>`).join("")}</div>`;
+  }
+
   _closeDlg() { this._dlg = null; this._render(); }
 
   async _applyDlg() {
@@ -367,6 +399,12 @@ class HeatManagerCard extends HTMLElement {
       await this._ws(msg).catch(() => {});
       this._closeDlg(); return;
     }
+    if (d.kind === "editprofile") {
+      const name = (r.getElementById("dname").value || "").trim();
+      if (!name) { this._toast(this._t("errName")); return; }
+      try { await this._ws({ type: "heatmanager/profile/save", profile_id: d.id, name, icon: d.icon, color: d.color }); this._closeDlg(); } catch (e) { /* toast shown */ }
+      return;
+    }
     if (d.kind === "newprofile") {
       const name = (r.getElementById("dname").value || "").trim();
       const tplId = r.getElementById("dtpl").value;
@@ -374,7 +412,7 @@ class HeatManagerCard extends HTMLElement {
       const tpl = this._profiles().find((q) => q.id === tplId);
       d.busy = true; d.name = name; d.template = tplId; this._render();
       try {
-        const res = await this._ws({ type: "heatmanager/profile/save", name, icon: d.icon, base_temp: d.t, week: tpl ? tpl.week : {} });
+        const res = await this._ws({ type: "heatmanager/profile/save", name, icon: d.icon, color: d.color, base_temp: d.t, week: tpl ? tpl.week : {} });
         this._sel = res.profile_id; this._dlg = null; this._toast(this._t("created", { p: name })); this._render();
       } catch (e) { d.busy = false; this._render(); }
       return;
@@ -426,7 +464,11 @@ class HeatManagerCard extends HTMLElement {
       if (a === "resume") this._ws({ type: "heatmanager/resume" }).catch(() => {});
       if (a === "save") this._save();
       if (a === "discard") { delete this._drafts[this._sel]; this._render(); }
-      if (a === "new-profile") { this._dlg = { kind: "newprofile", name: "", icon: ICONS[0], template: "", t: 17 }; this._render(); }
+      if (a === "new-profile") { this._dlg = { kind: "newprofile", name: "", icon: ICONS[0], color: PALETTE[this._profiles().length % PALETTE.length], template: "", t: 17 }; this._render(); }
+      if (a === "edit-profile") {
+        const p = this._cur(); if (!p) return;
+        this._dlg = { kind: "editprofile", id: p.id, name: p.name, icon: p.icon || ICONS[0], color: this._pcolor(p.id) }; this._render();
+      }
       if (a === "del-profile") {
         const p = this._cur(); if (!p) return;
         this._dlg = { kind: "delprofile", id: p.id, name: p.name, used: this._data.rooms.filter((x) => x.profile === p.id).map((x) => x.name) }; this._render();
@@ -488,6 +530,7 @@ class HeatManagerCard extends HTMLElement {
     });
     on("[data-ddur]", (b) => { dlg.dur = b.dataset.ddur; this._render(); });
     on("[data-dicon]", (b) => { keep(); dlg.icon = b.dataset.dicon; this._render(); });
+    on("[data-dcolor]", (b) => { keep(); dlg.color = b.dataset.dcolor; this._render(); });
     on("[data-dt]", (b) => { keep(); dlg.t = Math.max(5, Math.min(28, Math.round((dlg.t + Number(b.dataset.dt)) * 10) / 10)); this._render(); });
     on("[data-dday]", (b) => { keep(); const k = b.dataset.dday; dlg.copy = dlg.copy.includes(k) ? dlg.copy.filter((x) => x !== k) : [...dlg.copy, k]; this._render(); });
     on("[data-dset]", (b) => {
@@ -681,6 +724,19 @@ ha-icon { --mdc-icon-size:18px; }
 .ico.act { color:var(--warning-color, #ff9800); background:color-mix(in srgb, var(--warning-color, #ff9800) 18%, transparent); }
 .rtemp { display:flex; align-items:center; gap:2px; font-size:.9em; color:var(--secondary-text-color); white-space:nowrap; } .rtemp b { font-weight:600; }
 select { font:inherit; color:var(--primary-text-color); background:var(--card-background-color); border:1px solid var(--divider-color); border-radius:8px; padding:6px 8px; max-width:150px; }
+.today { display:flex; flex-direction:column; gap:6px; }
+.trow { display:flex; align-items:center; gap:10px; }
+.tname { width:110px; flex:none; font-size:.85em; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.tbar { position:relative; flex:1; height:22px; border-radius:6px; background:var(--secondary-background-color); overflow:hidden; }
+.tseg { position:absolute; top:0; bottom:0; display:flex; align-items:center; justify-content:center; font-size:.7em; font-weight:600; color:#fff; text-shadow:0 1px 2px rgba(0,0,0,.45); border-right:1px solid var(--card-background-color); box-sizing:border-box; overflow:hidden; white-space:nowrap; }
+.tseg.off { background:repeating-linear-gradient(45deg, transparent 0 4px, var(--divider-color) 4px 5px); }
+.tseg.ovr { box-shadow:inset 0 0 0 2px var(--warning-color, #ff9800); }
+.tnow { position:absolute; top:-2px; bottom:-2px; width:2px; margin-left:-1px; background:var(--error-color, #e53935); }
+.tticks { position:relative; flex:1; height:14px; font-size:.7em; color:var(--secondary-text-color); }
+.tticks span { position:absolute; transform:translateX(-50%); } .tticks span:first-child { transform:none; } .tticks span:last-child { transform:translateX(-100%); }
+.swatch { width:30px; height:30px; border-radius:50%; border:2px solid transparent; padding:0; }
+.swatch.on { border-color:var(--primary-text-color); box-shadow:0 0 0 2px var(--card-background-color) inset; }
+.pbtns { display:flex; gap:6px; }
 .legend { margin-top:8px; font-size:.8em; color:var(--secondary-text-color); }
 .err { padding:14px; border-radius:10px; background:rgba(219,68,55,.12); color:var(--error-color, #db4437); }
 .empty { color:var(--secondary-text-color); padding:20px; text-align:center; }
@@ -695,7 +751,7 @@ select { font:inherit; color:var(--primary-text-color); background:var(--card-ba
 .dsub { font-size:.85em; color:var(--secondary-text-color); margin:6px 0 8px; }
 .dchips { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:16px; }
 .dbtns { display:flex; gap:8px; align-items:center; } .sp { flex:1; }
-@media (max-width:600px) { ha-card { padding:12px; } .hint { display:none; } .overlay { padding-top:40px; } .rooms { grid-template-columns:1fr; } }
+@media (max-width:600px) { ha-card { padding:12px; } .hint { display:none; } .overlay { padding-top:40px; } .rooms { grid-template-columns:1fr; } .tname { width:80px; } }
 `;
 
 if (!customElements.get("heatmanager-card")) {
