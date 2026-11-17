@@ -49,6 +49,7 @@ Copy `custom_components/heatmanager` into your `config/custom_components/` folde
 
 4. In the card create profiles with **New profile**, drag time blocks into the grid and assign profiles to rooms.
    Every section (Today, Profiles, Rooms) folds via its header and the card remembers this per browser. The week grid shows as a compact 7‑day preview; tap it (or select/create a profile) to edit.
+   To delete several blocks at once, tap **Select**, mark blocks (or tap a weekday for the whole day, or **All**) and tap **Delete**. Nothing is stored until **Save**, and **Undo** brings them back.
    On touch screens a normal swipe scrolls the page; **press and hold** a moment, then drag to create or move a block. A short tap opens a block.
 
 Editing profiles requires an administrator account; everybody can assign profiles and pause.

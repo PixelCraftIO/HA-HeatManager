@@ -1,6 +1,6 @@
 /* HeatManager card – weekly heating profiles, room assignment, pause and window state.
  * Served and auto-loaded by the HeatManager integration. */
-const VERSION = "0.8.2";
+const VERSION = "0.8.3";
 const DAYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];
 const PALETTE = ["#f4a340", "#7e8ef1", "#3fb8c9", "#8bc34a", "#e57373", "#ba68c8", "#4db6ac", "#ffb74d"];
 const ICONS = ["mdi:radiator", "mdi:sofa", "mdi:bed", "mdi:teddy-bear", "mdi:shower", "mdi:desk", "mdi:silverware-fork-knife", "mdi:account-group", "mdi:dumbbell", "mdi:home-export-outline", "mdi:snowflake", "mdi:fire"];
@@ -33,6 +33,8 @@ const I18N = {
     noRooms: "Noch keine Räume. Lege sie unter Einstellungen › Geräte & Dienste › HeatManager › Konfigurieren an.",
     noProfiles: "Noch keine Heizprofile – lege mit „Neues Profil“ das erste an.",
     adminOnly: "Profile bearbeiten können nur Administratoren.",
+    select: "Auswählen", selected: "{n} ausgewählt", selectAll: "Alle", selectNone: "Keine", selectDay: "{d}: alle Blöcke auswählen", deleteN: "{n} löschen", done: "Fertig", undo: "Rückgängig",
+    selectHint: "Blöcke antippen zum Markieren · Wochentag antippen = ganzer Tag", deletedN: "{n} Zeitblöcke gelöscht – erst mit „Speichern“ übernommen",
     hideWeek: "Einklappen", openProfile: "Heizprofil öffnen", expand: "Aufklappen", collapse: "Einklappen",
     usedBy: "genutzt von {r}", usedByNone: "von keinem Raum genutzt",
     today: "Heute", todayOff: "nicht gesteuert", editProfile: "Bearbeiten", editTitle: "Profil bearbeiten", color: "Farbe",
@@ -67,6 +69,8 @@ const I18N = {
     noRooms: "No rooms yet. Add them under Settings › Devices & services › HeatManager › Configure.",
     noProfiles: "No heating profiles yet – create the first one with “New profile”.",
     adminOnly: "Only administrators can edit profiles.",
+    select: "Select", selected: "{n} selected", selectAll: "All", selectNone: "None", selectDay: "{d}: select all blocks", deleteN: "Delete {n}", done: "Done", undo: "Undo",
+    selectHint: "Tap blocks to mark them · tap a weekday = whole day", deletedN: "{n} time blocks deleted – applied with “Save”",
     hideWeek: "Collapse", openProfile: "Open heating profile", expand: "Expand", collapse: "Collapse",
     usedBy: "used by {r}", usedByNone: "not used by any room",
     today: "Today", todayOff: "not controlled", editProfile: "Edit", editTitle: "Edit profile", color: "Colour",
@@ -169,6 +173,24 @@ class HeatManagerCard extends HTMLElement {
     if (el && el.scrollIntoView) el.scrollIntoView({ behavior: "smooth", block: "start" });
   }
   _cur() { return this._profiles().find((p) => p.id === this._sel); }
+  // selection mode for deleting several blocks at once; tied to the open profile
+  _multiOn() { return !!(this._multi && this._multi.pid === this._sel && this._cur()); }
+  _multiToggle(keys, on) {
+    const set = new Set(this._multi.keys);
+    keys.forEach((k) => (on ? set.add(k) : set.delete(k)));
+    this._multi.keys = [...set];
+  }
+  _multiDelete() {
+    const p = this._cur(); if (!p || !this._multiOn() || !this._multi.keys.length) return;
+    const before = this._drafts[p.id] ? JSON.parse(JSON.stringify(this._drafts[p.id])) : null;
+    const w = this._draft(p), chosen = new Set(this._multi.keys);
+    let n = 0;
+    DAYS.forEach((d) => { const keep = w[d].filter((_, i) => !chosen.has(`${d}:${i}`)); n += w[d].length - keep.length; w[d] = keep; });
+    this._undo = { pid: p.id, before };
+    this._multi = null;
+    this._toast(this._t("deletedN", { n }));
+    this._render();
+  }
   _pcolor(id) {
     const ps = this._profiles(), i = ps.findIndex((p) => p.id === id);
     if (i < 0) return "var(--disabled-text-color)";
@@ -253,15 +275,21 @@ class HeatManagerCard extends HTMLElement {
     const p = this._cur();
     if (p) {
       const w = this._week(p), hh = c.hour_height, pxm = hh / 60, dn = this._t("days");
+      const multi = admin && this._multiOn(), chosen = new Set(multi ? this._multi.keys : []);
+      const edit = admin && !multi;
       const axis = Array.from({ length: 13 }, (_, i) => `<div class="hlabel" style="top:${i * 2 * hh}px">${pad(i * 2)}:00</div>`).join("");
       const cols = DAYS.map((d, di) => {
         const blocks = w[d].map((b, i) => {
           const top = b.from * pxm, height = Math.max(6, (b.to - b.from) * pxm);
-          return `<div class="blk" data-idx="${i}" style="top:${top}px;height:${height}px;background:${tempColor(b.t)}">
-            ${admin ? `<div class="hdl top" data-h="top"></div>` : ""}<div class="bt">${this._fmtT(b.t)}°</div>${height >= 34 ? `<div class="bs">${hm(b.from)}–${hm(b.to)}</div>` : ""}${admin ? `<div class="hdl bot" data-h="bot"></div>` : ""}</div>`;
+          const ck = chosen.has(`${d}:${i}`);
+          return `<div class="blk ${multi ? "pick" : ""} ${ck ? "chosen" : ""}" data-idx="${i}" ${multi ? `data-pick="${d}:${i}"` : ""} style="top:${top}px;height:${height}px;background:${tempColor(b.t)}">
+            ${edit ? `<div class="hdl top" data-h="top"></div>` : ""}${multi ? `<ha-icon class="chk" icon="${ck ? "mdi:check-circle" : "mdi:circle-outline"}"></ha-icon>` : ""}<div class="bt">${this._fmtT(b.t)}°</div>${height >= 34 ? `<div class="bs">${hm(b.from)}–${hm(b.to)}</div>` : ""}${edit ? `<div class="hdl bot" data-h="bot"></div>` : ""}</div>`;
         }).join("");
-        return `<div class="col"><div class="dhead"><span>${dn[di]}</span>${admin ? `<button class="ico" data-copyday="${d}" title="${this._t("copyDay")}"><ha-icon icon="mdi:content-copy"></ha-icon></button>` : ""}</div>
-          <div class="track ${admin ? "edit" : ""}" data-day="${d}" style="height:${24 * hh}px;background-size:100% ${hh}px">${blocks}<div class="now" data-nowday="${d}"></div></div></div>`;
+        const dayHead = multi
+          ? `<button class="dpick ${w[d].length && w[d].every((_, i) => chosen.has(`${d}:${i}`)) ? "on" : ""}" data-pickday="${d}" title="${esc(this._t("selectDay", { d: this._t("daysLong")[di] }))}" ${w[d].length ? "" : "disabled"}>${dn[di]}</button>`
+          : `<span>${dn[di]}</span>${admin ? `<button class="ico" data-copyday="${d}" title="${this._t("copyDay")}"><ha-icon icon="mdi:content-copy"></ha-icon></button>` : ""}`;
+        return `<div class="col"><div class="dhead">${dayHead}</div>
+          <div class="track ${edit ? "edit" : ""}" data-day="${d}" style="height:${24 * hh}px;background-size:100% ${hh}px">${blocks}<div class="now" data-nowday="${d}"></div></div></div>`;
       }).join("");
       const used = data.rooms.filter((r) => r.profile === p.id).map((r) => r.name);
       profHtml = `
@@ -278,12 +306,23 @@ class HeatManagerCard extends HTMLElement {
                 <b style="color:${tempColor(p.base_temp)}">${this._fmtT(p.base_temp)} °C</b>
                 ${admin ? `<button class="ico" data-base="0.5"><ha-icon icon="mdi:plus"></ha-icon></button>` : ""}</div></div>
           </div>
-          <div class="hint"><ha-icon icon="mdi:gesture-swipe-vertical"></ha-icon>${admin ? this._t(window.matchMedia && matchMedia("(pointer: coarse)").matches ? "hintTouch" : "hint") : this._t("adminOnly")}</div>
+          ${multi ? (() => {
+            const n = this._multi.keys.length, total = DAYS.reduce((a, d) => a + w[d].length, 0);
+            return `<div class="multibar"><ha-icon icon="mdi:checkbox-multiple-marked-outline"></ha-icon><span>${this._t("selected", { n })}</span>
+              <button class="btn small" data-act="pick-all" ${total ? "" : "disabled"}>${this._t("selectAll")}</button>
+              <button class="btn small" data-act="pick-none" ${n ? "" : "disabled"}>${this._t("selectNone")}</button>
+              <span class="sp"></span>
+              <button class="btn small dangerfill" data-act="pick-delete" ${n ? "" : "disabled"}><ha-icon icon="mdi:delete"></ha-icon>${this._t("deleteN", { n })}</button>
+              <button class="btn small primary" data-act="pick-done">${this._t("done")}</button></div>
+              <div class="hint"><ha-icon icon="mdi:gesture-tap"></ha-icon>${this._t("selectHint")}</div>`;
+          })() : `<div class="hint"><ha-icon icon="mdi:gesture-swipe-vertical"></ha-icon><span class="sp">${admin ? this._t(window.matchMedia && matchMedia("(pointer: coarse)").matches ? "hintTouch" : "hint") : this._t("adminOnly")}</span>
+            ${admin && DAYS.some((d) => w[d].length) ? `<button class="btn small" data-act="pick-start"><ha-icon icon="mdi:checkbox-multiple-marked-outline"></ha-icon>${this._t("select")}</button>` : ""}</div>`}
           <div class="gridwrap"><div class="grid">
             <div class="axis"><div class="dhead"></div><div class="axtrack" style="height:${24 * hh}px">${axis}</div></div>${cols}
           </div></div>
           ${this._drafts[p.id] ? "" : `<button class="btn small weektoggle" data-act="week-close"><ha-icon icon="mdi:chevron-up"></ha-icon>${this._t("hideWeek")}</button>`}
           ${this._drafts[p.id] ? `<div class="savebar"><ha-icon icon="mdi:content-save-alert"></ha-icon><span>${this._t("unsaved", { p: esc(p.name) })}</span>
+            ${this._undo && this._undo.pid === p.id ? `<button class="btn" data-act="undo"><ha-icon icon="mdi:undo"></ha-icon>${this._t("undo")}</button>` : ""}
             <button class="btn" data-act="discard">${this._t("discard")}</button><button class="btn primary" data-act="save">${this._t("save")}</button></div>` : ""}
         </div>`;
     } else if (!this._profiles().length) {
@@ -498,7 +537,7 @@ class HeatManagerCard extends HTMLElement {
     const p = this._cur(); if (!p || !this._drafts[p.id]) return;
     try {
       await this._ws({ type: "heatmanager/profile/save", profile_id: p.id, name: p.name, week: this._weekPayload(this._drafts[p.id]) });
-      delete this._drafts[p.id]; this._toast(this._t("saved", { p: p.name })); this._render();
+      delete this._drafts[p.id]; this._undo = null; this._toast(this._t("saved", { p: p.name })); this._render();
     } catch (e) { /* toast shown */ }
   }
 
@@ -510,8 +549,20 @@ class HeatManagerCard extends HTMLElement {
       const a = b.dataset.act;
       if (a === "resume") this._ws({ type: "heatmanager/resume" }).catch(() => {});
       if (a === "save") this._save();
+      if (a === "pick-start") { this._multi = { pid: this._sel, keys: [] }; this._render(); }
+      if (a === "pick-done") { this._multi = null; this._render(); }
+      if (a === "pick-none" && this._multiOn()) { this._multi.keys = []; this._render(); }
+      if (a === "pick-all" && this._multiOn()) {
+        const w = this._week(this._cur());
+        this._multi.keys = DAYS.flatMap((d) => w[d].map((_, i) => `${d}:${i}`)); this._render();
+      }
+      if (a === "pick-delete") this._multiDelete();
+      if (a === "undo" && this._undo && this._undo.pid === this._sel) {
+        if (this._undo.before) this._drafts[this._sel] = this._undo.before; else delete this._drafts[this._sel];
+        this._undo = null; this._render();
+      }
       if (a === "week-close") { this._sel = null; this._render(); }
-      if (a === "discard") { delete this._drafts[this._sel]; this._render(); }
+      if (a === "discard") { delete this._drafts[this._sel]; this._undo = null; this._multi = null; this._render(); }
       if (a === "new-profile") { this._dlg = { kind: "newprofile", name: "", icon: ICONS[0], color: PALETTE[this._profiles().length % PALETTE.length], template: "", t: 17 }; this._render(); }
       if (a === "edit-profile") {
         const p = this._cur(); if (!p) return;
@@ -534,7 +585,7 @@ class HeatManagerCard extends HTMLElement {
     on("[data-tab]", (b) => {
       // choosing a profile opens its week plan; tapping the open one again closes it (unless it has unsaved changes)
       const id = b.dataset.tab;
-      this._sel = id === this._sel && !this._drafts[id] ? null : id; this._render();
+      this._sel = id === this._sel && !this._drafts[id] ? null : id; this._multi = null; this._render();
     });
     on("[data-openprofile]", (b) => this._openProfile(b.dataset.openprofile));
     on("[data-fold]", (b) => this._toggleFold(b.dataset.fold));
@@ -555,6 +606,15 @@ class HeatManagerCard extends HTMLElement {
       this._render();
     });
     on("[data-copyday]", (b, e) => { e.stopPropagation(); this._dlg = { kind: "copyday", day: b.dataset.copyday, copy: [] }; this._render(); });
+    on("[data-pick]", (b) => {
+      if (!this._multiOn()) return;
+      const k = b.dataset.pick; this._multiToggle([k], !this._multi.keys.includes(k)); this._render();
+    });
+    on("[data-pickday]", (b) => {
+      if (!this._multiOn()) return;
+      const d = b.dataset.pickday, keys = this._week(this._cur())[d].map((_, i) => `${d}:${i}`);
+      this._multiToggle(keys, !keys.every((k) => this._multi.keys.includes(k))); this._render();
+    });
     r.querySelectorAll(".track.edit").forEach((t) => {
       t.addEventListener("pointerdown", (e) => this._down(e, t));
       // while a held block is dragged, the page must not scroll along
@@ -766,6 +826,15 @@ ha-icon { --mdc-icon-size:18px; }
 .track.dragging { touch-action:none; }
 .blk { position:absolute; left:3px; right:3px; border-radius:8px; color:#fff; overflow:hidden; box-shadow:0 1px 3px rgba(0,0,0,.35); display:flex; flex-direction:column; align-items:center; justify-content:center; text-shadow:0 1px 2px rgba(0,0,0,.4); }
 .track.edit .blk { cursor:grab; }
+.blk.pick { cursor:pointer; user-select:none; -webkit-user-select:none; }
+.blk.pick:not(.chosen) { opacity:.55; }
+.blk.chosen { box-shadow:0 0 0 3px var(--primary-color), 0 2px 8px rgba(0,0,0,.4); z-index:2; }
+.blk .chk { position:absolute; top:2px; right:2px; --mdc-icon-size:16px; }
+.multibar { position:sticky; top:0; z-index:4; display:flex; flex-wrap:wrap; align-items:center; gap:8px; padding:8px 12px; margin-bottom:6px; border-radius:12px; background:color-mix(in srgb, var(--primary-color) 14%, var(--card-background-color)); border:1px solid var(--primary-color); }
+.multibar .sp, .hint .sp { flex:1; }
+.dpick { border:1px solid var(--divider-color); background:transparent; color:inherit; font:inherit; font-weight:600; border-radius:8px; padding:2px 8px; cursor:pointer; }
+.dpick.on { background:var(--primary-color); color:var(--text-primary-color, #fff); border-color:var(--primary-color); }
+.dpick[disabled] { opacity:.4; cursor:default; }
 .blk.lift { box-shadow:0 0 0 2px var(--primary-color), 0 6px 16px rgba(0,0,0,.45); z-index:3; }
 .blk.ghost { background:color-mix(in srgb, var(--primary-color) 55%, transparent); border:2px dashed var(--primary-color); box-shadow:none; }
 .bt { font-weight:700; font-size:.9em; line-height:1.1; } .bs { font-size:.68em; opacity:.95; line-height:1.1; text-align:center; }
