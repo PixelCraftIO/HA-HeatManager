@@ -41,6 +41,7 @@ from .const import (
     CONF_EXTERNAL,
     CONF_FROST_TEMP,
     CONF_MAX_AGE,
+    CONF_OCCUPANCY,
     CONF_PRESENCE,
     CONF_PRIMARY,
     CONF_ROOM_ID,
@@ -49,6 +50,8 @@ from .const import (
     CONF_SENSORS,
     CONF_TEMP_METHOD,
     CONF_UPPER_LIMIT,
+    CONF_VACANT_DELAY,
+    CONF_VACANT_TEMP,
     CONF_WEIGHTS,
     CONF_WINDOW_DELAY,
     CONF_WINDOW_NEAR,
@@ -59,6 +62,8 @@ from .const import (
     DEFAULT_BASE_TEMP,
     DEFAULT_FROST_TEMP,
     DEFAULT_MAX_AGE,
+    DEFAULT_VACANT_DELAY,
+    DEFAULT_VACANT_TEMP,
     DEFAULT_WINDOW_DELAY,
     DOMAIN,
     EXTERNAL_REFRESH_MIN,
@@ -73,6 +78,7 @@ from .const import (
     REASON_PROFILE_BASE,
     REASON_PROFILE_BLOCK,
     REASON_TOO_WARM,
+    REASON_VACANT,
     REASON_VACATION,
     REASON_WINDOW,
     RECHECK_INTERVAL_MIN,
@@ -109,9 +115,13 @@ SERVICE_SET_TEMPERATURE = "set_temperature"
 NUMBER_DOMAIN = "number"
 SERVICE_SET_VALUE = "set_value"
 # Reasons for which a setpoint means comfort (compensated per thermostat); the others mean "stay cold"
-COMFORT_REASONS = (REASON_PROFILE_BLOCK, REASON_PROFILE_BASE, REASON_AWAY, REASON_OVERRIDE)
+COMFORT_REASONS = (REASON_PROFILE_BLOCK, REASON_PROFILE_BASE, REASON_AWAY, REASON_VACANT, REASON_OVERRIDE)
 # Reasons the upper limit may lower (an explicit override is the user's wish and stays)
-LIMITED_REASONS = (REASON_PROFILE_BLOCK, REASON_PROFILE_BASE, REASON_AWAY)
+LIMITED_REASONS = (REASON_PROFILE_BLOCK, REASON_PROFILE_BASE, REASON_AWAY, REASON_VACANT)
+# occupancy of a room
+OCCUPIED = "occupied"
+EMPTY = "empty"
+UNSURE = "unsure"
 
 
 def slugify_name(name: str) -> str:
@@ -142,6 +152,10 @@ class Room:
     control: str = CONTROL_THERMOSTAT
     # thermostat -> number entity that takes an external temperature
     external: dict[str, str] = field(default_factory=dict)
+    # motion/occupancy/presence sensors: the room is lowered while all are off for a while
+    occupancy: list[str] = field(default_factory=list)
+    vacant_delay: int = DEFAULT_VACANT_DELAY  # minutes
+    vacant_temp: float = DEFAULT_VACANT_TEMP
 
 
 @dataclass
@@ -175,6 +189,9 @@ class RoomRuntime:
     # external inputs: number entity -> (value, when) last sent
     external_sent: dict[str, tuple[float, datetime]] = field(default_factory=dict)
     sensors_missing_since: datetime | None = None
+    # nobody in the room for vacant_delay minutes
+    vacant: bool = False
+    vacant_timer: CALLBACK_TYPE | None = None
 
 
 class HeatManager:
@@ -186,6 +203,8 @@ class HeatManager:
         self._store: Store[dict[str, Any]] = Store(hass, STORAGE_VERSION, f"{STORAGE_KEY}.{entry.entry_id}")
         self.profiles: dict[str, dict[str, Any]] = {}
         self.assignments: dict[str, str] = {}
+        # room id -> assignment before the room was switched off (frost), restored when switched on
+        self.previous_assignments: dict[str, str] = {}
         # room id -> {"temp": float, "until": datetime | None}
         self.overrides: dict[str, dict[str, Any]] = {}
         self.pause_active = False
@@ -240,6 +259,9 @@ class HeatManager:
                 upper_limit=float(raw[CONF_UPPER_LIMIT]) if raw.get(CONF_UPPER_LIMIT) else None,
                 control=raw.get(CONF_CONTROL) if raw.get(CONF_CONTROL) in CONTROLS else CONTROL_THERMOSTAT,
                 external={k: v for k, v in (raw.get(CONF_EXTERNAL) or {}).items() if v},
+                occupancy=list(raw.get(CONF_OCCUPANCY) or []),
+                vacant_delay=int(raw.get(CONF_VACANT_DELAY) or DEFAULT_VACANT_DELAY),
+                vacant_temp=float(raw.get(CONF_VACANT_TEMP) or DEFAULT_VACANT_TEMP),
             )
             if room.area and (area := ar.async_get(self.hass).async_get_area(room.area)):
                 room.area_name = area.name
@@ -249,6 +271,9 @@ class HeatManager:
         data = await self._store.async_load() or {}
         self.profiles = data.get("profiles", {})
         self.assignments = data.get("assignments", {})
+        self.previous_assignments = {
+            k: v for k, v in (data.get("previous_assignments") or {}).items() if k in self.rooms
+        }
         pause = data.get("pause", {})
         self.pause_active = bool(pause.get("active"))
         until = pause.get("until")
@@ -288,6 +313,11 @@ class HeatManager:
         for room in self.rooms.values():
             if self._any_window_open(room):
                 self.runtime[room.id].window_open = True
+        occupancy = sorted({s for room in self.rooms.values() for s in room.occupancy})
+        if occupancy:
+            self._unsubs.append(async_track_state_change_event(self.hass, occupancy, self._on_occupancy_event))
+            for room in self.rooms.values():
+                self._update_occupancy(room)
         if self.presence_entities:
             self._unsubs.append(
                 async_track_state_change_event(self.hass, self.presence_entities, self._on_presence_event)
@@ -323,6 +353,9 @@ class HeatManager:
         for rt in self.runtime.values():
             if rt.window_timer:
                 rt.window_timer()
+            if rt.vacant_timer:
+                rt.vacant_timer()
+                rt.vacant_timer = None
             for unsub in rt.retry_timers.values():
                 unsub()
             rt.retry_timers.clear()
@@ -335,6 +368,7 @@ class HeatManager:
         return {
             "profiles": self.profiles,
             "assignments": self.assignments,
+            "previous_assignments": self.previous_assignments,
             "overrides": {
                 room_id: {
                     "temp": o["temp"],
@@ -493,8 +527,10 @@ class HeatManager:
         if room_ids:
             self.evaluate(room_ids=room_ids)
 
-    def _plan(self, room: Room, now: datetime, away: bool | None = None) -> tuple[float | None, str]:
-        """Target without window and override: vacation, pause, frost, manual or profile (lowered when away)."""
+    def _plan(
+        self, room: Room, now: datetime, away: bool | None = None, vacant: bool | None = None
+    ) -> tuple[float | None, str]:
+        """Target without window and override: vacation, pause, frost, manual or profile (lowered when away/empty)."""
         assignment = self.assignments.get(room.id, ASSIGN_MANUAL)
         controlled = assignment == ASSIGN_FROST or assignment in self.profiles
         if controlled and self.vacation_until is not None and self.vacation_until > now:
@@ -507,9 +543,12 @@ class HeatManager:
         if profile is None:
             return None, REASON_MANUAL
         temp, in_block = profile_target(profile, now)
+        reason = REASON_PROFILE_BLOCK if in_block else REASON_PROFILE_BASE
         if (self.away if away is None else away) and temp > self.away_temp:
-            return self.away_temp, REASON_AWAY
-        return temp, REASON_PROFILE_BLOCK if in_block else REASON_PROFILE_BASE
+            temp, reason = self.away_temp, REASON_AWAY
+        if (self.runtime[room.id].vacant if vacant is None else vacant) and temp > room.vacant_temp:
+            temp, reason = room.vacant_temp, REASON_VACANT
+        return temp, reason
 
     def today(self, room: Room, now: datetime | None = None) -> list[list[Any]]:
         """Today's planned course as [from_min, to_min, temp or None, reason] (without windows and presence)."""
@@ -544,7 +583,7 @@ class HeatManager:
                 if override and start >= now_min and (override["until"] is None or override["until"] > moment)
                 else None
             )
-            temp, reason = (ov["temp"], REASON_OVERRIDE) if ov else self._plan(room, moment, away=False)
+            temp, reason = (ov["temp"], REASON_OVERRIDE) if ov else self._plan(room, moment, away=False, vacant=False)
             if out and out[-1][2] == temp and out[-1][3] == reason:
                 out[-1][1] = end
             else:
@@ -993,6 +1032,61 @@ class HeatManager:
 
         self._away_timer = async_call_later(self.hass, self.away_delay * 60, _gone)
 
+    # -------------------------------------------------------------- occupancy
+    def _occupancy(self, room: Room) -> str:
+        """Occupied when any sensor is on; unsure while one has no usable state (then keep it warm)."""
+        unsure = False
+        for entity_id in room.occupancy:
+            st = self.hass.states.get(entity_id)
+            if st is None or st.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
+                unsure = True
+            elif st.state == STATE_ON:
+                return OCCUPIED
+        return UNSURE if unsure else EMPTY
+
+    @callback
+    def _update_occupancy(self, room: Room) -> bool:
+        """Follow the room's occupancy sensors; return True when the room became empty or occupied."""
+        rt = self.runtime[room.id]
+        if not room.occupancy:
+            return False
+        if self._occupancy(room) != EMPTY:
+            if rt.vacant_timer:
+                rt.vacant_timer()
+                rt.vacant_timer = None
+            if rt.vacant:
+                _LOGGER.debug("%s: occupied again", room.name)
+                rt.vacant = False
+                return True
+            return False
+        if rt.vacant or rt.vacant_timer:
+            return False
+        # all off: count from the last time any of them changed (also covers a restart)
+        last = max(st.last_changed for e in room.occupancy if (st := self.hass.states.get(e)) is not None)
+        remaining = room.vacant_delay * 60 - (dt_util.utcnow() - last).total_seconds()
+        if remaining <= 0:
+            _LOGGER.debug("%s: nobody there, lowering to at most %.1f °C", room.name, room.vacant_temp)
+            rt.vacant = True
+            return True
+
+        @callback
+        def _empty(_now: datetime) -> None:
+            rt.vacant_timer = None
+            if self._occupancy(room) == EMPTY and not rt.vacant:
+                _LOGGER.debug("%s: nobody there, lowering to at most %.1f °C", room.name, room.vacant_temp)
+                rt.vacant = True
+                self.evaluate(room_ids=[room.id])
+
+        rt.vacant_timer = async_call_later(self.hass, remaining, _empty)
+        return False
+
+    @callback
+    def _on_occupancy_event(self, event: Event[EventStateChangedData]) -> None:
+        entity_id = event.data["entity_id"]
+        changed = [r.id for r in self.rooms.values() if entity_id in r.occupancy and self._update_occupancy(r)]
+        if changed:
+            self.evaluate(room_ids=changed)
+
     # --------------------------------------------------------------- profiles
     @callback
     def save_profile(self, data: dict[str, Any], profile_id: str | None = None) -> str:
@@ -1057,6 +1151,44 @@ class HeatManager:
         self.runtime[room_id].target = None
         self.evaluate(force=True, room_ids=[room_id])
 
+    @callback
+    def set_room_on(self, room_id: str, on: bool) -> None:
+        """Switch a room off (frost protection) or back on (the assignment it had before)."""
+        if room_id not in self.rooms:
+            raise KeyError(room_id)
+        current = self.assignments.get(room_id, ASSIGN_MANUAL)
+        if not on:
+            if current != ASSIGN_FROST:
+                self.previous_assignments[room_id] = current
+                self.set_assignment(room_id, ASSIGN_FROST)
+            return
+        if current == ASSIGN_FROST:
+            previous = self.previous_assignments.pop(room_id, ASSIGN_MANUAL)
+            if previous not in self.profiles and previous != ASSIGN_MANUAL:
+                previous = ASSIGN_MANUAL
+            self.set_assignment(room_id, previous)
+
+    @callback
+    def set_room_temperature(self, room_id: str, temp: float) -> datetime | None:
+        """A temperature set on the room itself (its climate entity, voice assistants).
+
+        Rooms with a plan hold it until the plan's next change, manual rooms pass it straight
+        to their thermostats, rooms on frost protection hold it until the override is ended.
+        """
+        if room_id not in self.rooms:
+            raise KeyError(room_id)
+        temp = float(temp)
+        if not TEMP_MIN <= temp <= TEMP_MAX:
+            raise ValueError("temperature out of range")
+        room = self.rooms[room_id]
+        if self.assignments.get(room_id, ASSIGN_MANUAL) == ASSIGN_MANUAL and room_id not in self.overrides:
+            for entity_id in room.climates:
+                self._send_climate(room, entity_id, temp, attempt=len(RETRY_DELAYS))
+            return None
+        if self.next_plan_change(room_id) is not None:
+            return self.set_override(room_id, temp, until_next_change=True)
+        return self.set_override(room_id, temp)
+
     # ------------------------------------------------------------------ views
     def room_info(self, room: Room) -> dict[str, Any]:
         """Describe a room for entities and the card."""
@@ -1082,6 +1214,9 @@ class HeatManager:
             "sensors_valid": sorted(rt.readings),
             "too_warm": rt.too_warm,
             "control": room.control,
+            "occupancy": bool(room.occupancy),
+            "vacant": rt.vacant,
+            "vacant_temp": room.vacant_temp if room.occupancy else None,
         }
         now = dt_util.now()
         info["today"] = self.today(room, now)
