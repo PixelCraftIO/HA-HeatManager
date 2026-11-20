@@ -38,12 +38,18 @@
           "climates": "Thermostate",
           "windows": "Fenster-/Türkontakte",
           "area": "Bereich",
-          "temp_sensors": "Temperatursensoren"
+          "temp_sensors": "Temperatursensoren",
+          "occupancy_sensors": "Bewegungs-/Präsenzmelder",
+          "vacant_delay": "Leer nach",
+          "vacant_temp": "Temperatur bei leerem Raum"
         },
         "data_description": {
           "climates": "Thermostate dieses Raums.",
           "windows": "Optional. Solange einer offen ist, geht der Raum auf Frostschutz.",
-          "temp_sensors": "Optional. Ein oder mehrere Raumsensoren. Ohne Sensor gelten die Messwerte der Thermostate."
+          "temp_sensors": "Optional. Ein oder mehrere Raumsensoren. Ohne Sensor gelten die Messwerte der Thermostate.",
+          "occupancy_sensors": "Optional. Sind alle für die eingestellte Zeit aus, wird der Raum auf die Temperatur darunter abgesenkt (nur Räume mit Profil). Sobald einer anspricht, wird wieder normal geheizt. Für Räume, in denen man still sitzt oder schläft, eignen sich Präsenzmelder (mmWave) besser als Bewegungsmelder.",
+          "vacant_delay": "So lange müssen alle Melder aus sein, bevor der Raum als leer gilt.",
+          "vacant_temp": "Höchste Zieltemperatur, solange der Raum leer ist."
         }
       },
       "edit_room": {
@@ -59,11 +65,17 @@
           "climates": "Thermostate",
           "windows": "Fenster-/Türkontakte",
           "area": "Bereich",
-          "temp_sensors": "Temperatursensoren"
+          "temp_sensors": "Temperatursensoren",
+          "occupancy_sensors": "Bewegungs-/Präsenzmelder",
+          "vacant_delay": "Leer nach",
+          "vacant_temp": "Temperatur bei leerem Raum"
         },
         "data_description": {
           "temp_sensors": "Optional. Ein oder mehrere Raumsensoren. Ohne Sensor gelten die Messwerte der Thermostate.",
-          "climates": "Thermostate dieses Raums."
+          "climates": "Thermostate dieses Raums.",
+          "occupancy_sensors": "Optional. Sind alle für die eingestellte Zeit aus, wird der Raum auf die Temperatur darunter abgesenkt (nur Räume mit Profil). Sobald einer anspricht, wird wieder normal geheizt. Für Räume, in denen man still sitzt oder schläft, eignen sich Präsenzmelder (mmWave) besser als Bewegungsmelder.",
+          "vacant_delay": "So lange müssen alle Melder aus sein, bevor der Raum als leer gilt.",
+          "vacant_temp": "Höchste Zieltemperatur, solange der Raum leer ist."
         }
       },
       "remove_room": {
@@ -171,7 +183,8 @@
               "override": "Übersteuert",
               "away": "Niemand zu Hause",
               "vacation": "Urlaub",
-              "too_warm": "Zu warm am Sensor"
+              "too_warm": "Zu warm am Sensor",
+              "vacant": "Raum leer"
             }
           }
         }

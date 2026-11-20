@@ -8,6 +8,7 @@ from typing import Any
 from freezegun.api import FrozenDateTimeFactory
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.helpers import issue_registry as ir
+from homeassistant.setup import async_setup_component
 from homeassistant.util import dt as dt_util
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry, async_fire_time_changed, async_mock_service
@@ -48,6 +49,8 @@ async def make(hass: HomeAssistant, freezer: FrozenDateTimeFactory, **room: Any)
     hass.states.async_set(WINDOW, "off", {"device_class": "window"})
     sensor(hass, NEAR, 16)
     sensor(hass, BED, 22)
+    # load the real climate component first so the mock below replaces its service
+    assert await async_setup_component(hass, "climate", {})
     calls: list[ServiceCall] = async_mock_service(hass, "climate", "set_temperature")
     number_calls: list[ServiceCall] = async_mock_service(hass, "number", "set_value")
     entry = MockConfigEntry(

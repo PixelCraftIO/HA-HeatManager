@@ -19,6 +19,7 @@ from .const import (
     CONF_EXTERNAL,
     CONF_FROST_TEMP,
     CONF_MAX_AGE,
+    CONF_OCCUPANCY,
     CONF_PRESENCE,
     CONF_PRIMARY,
     CONF_ROOM_ID,
@@ -27,6 +28,8 @@ from .const import (
     CONF_SENSORS,
     CONF_TEMP_METHOD,
     CONF_UPPER_LIMIT,
+    CONF_VACANT_DELAY,
+    CONF_VACANT_TEMP,
     CONF_WEIGHTS,
     CONF_WINDOW_DELAY,
     CONF_WINDOW_NEAR,
@@ -35,6 +38,8 @@ from .const import (
     DEFAULT_AWAY_TEMP,
     DEFAULT_FROST_TEMP,
     DEFAULT_MAX_AGE,
+    DEFAULT_VACANT_DELAY,
+    DEFAULT_VACANT_TEMP,
     DEFAULT_WINDOW_DELAY,
     DOMAIN,
     NAME,
@@ -63,12 +68,17 @@ def _settings_schema(frost: float, delay: int) -> vol.Schema:
     )
 
 
-def _room_schema(room: dict[str, Any] | None = None) -> vol.Schema:
+def _own_climates(hass: Any) -> list[str]:
+    """HeatManager's own room thermostats: never offered as a room's thermostat."""
+    return [e.entity_id for e in er.async_get(hass).entities.values() if e.platform == DOMAIN and e.domain == "climate"]
+
+
+def _room_schema(hass: Any, room: dict[str, Any] | None = None) -> vol.Schema:
     room = room or {}
     schema: dict[Any, Any] = {
         vol.Required(CONF_ROOM_NAME, default=room.get(CONF_ROOM_NAME, vol.UNDEFINED)): selector.TextSelector(),
         vol.Required(CONF_CLIMATES, default=room.get(CONF_CLIMATES, vol.UNDEFINED)): selector.EntitySelector(
-            selector.EntitySelectorConfig(domain="climate", multiple=True)
+            selector.EntitySelectorConfig(domain="climate", multiple=True, exclude_entities=_own_climates(hass))
         ),
         vol.Optional(CONF_WINDOWS, default=room.get(CONF_WINDOWS, [])): selector.EntitySelector(
             selector.EntitySelectorConfig(domain="binary_sensor", multiple=True)
@@ -79,6 +89,15 @@ def _room_schema(room: dict[str, Any] | None = None) -> vol.Schema:
     }
     area_key = vol.Optional(CONF_AREA, description={"suggested_value": room.get(CONF_AREA)})
     schema[area_key] = selector.AreaSelector()
+    schema[vol.Optional(CONF_OCCUPANCY, default=room.get(CONF_OCCUPANCY, []))] = selector.EntitySelector(
+        selector.EntitySelectorConfig(domain="binary_sensor", multiple=True)
+    )
+    schema[vol.Required(CONF_VACANT_DELAY, default=room.get(CONF_VACANT_DELAY) or DEFAULT_VACANT_DELAY)] = _box(
+        1, 720, 1, "min"
+    )
+    schema[vol.Required(CONF_VACANT_TEMP, default=room.get(CONF_VACANT_TEMP) or DEFAULT_VACANT_TEMP)] = _box(
+        5, 25, 0.5, "°C"
+    )
     return vol.Schema(schema)
 
 
@@ -211,7 +230,7 @@ class HeatManagerOptionsFlow(OptionsFlow):
     async def async_step_add_room(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         errors: dict[str, str] = {}
         if user_input is not None:
-            room = self._clean_room(user_input, uuid.uuid4().hex[:8])
+            room = self._clean_room(self.hass, user_input, uuid.uuid4().hex[:8])
             if not room[CONF_CLIMATES]:
                 errors[CONF_CLIMATES] = "no_climate"
             elif any(r[CONF_ROOM_NAME].casefold() == room[CONF_ROOM_NAME].casefold() for r in self._rooms):
@@ -219,7 +238,7 @@ class HeatManagerOptionsFlow(OptionsFlow):
             else:
                 self._pending = room
                 return await self.async_step_room_temperature()
-        return self.async_show_form(step_id="add_room", data_schema=_room_schema(user_input), errors=errors)
+        return self.async_show_form(step_id="add_room", data_schema=_room_schema(self.hass, user_input), errors=errors)
 
     async def async_step_room_temperature(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         room = self._pending
@@ -294,7 +313,7 @@ class HeatManagerOptionsFlow(OptionsFlow):
         current = next(r for r in self._rooms if r[CONF_ROOM_ID] == self._room_id)
         errors: dict[str, str] = {}
         if user_input is not None:
-            room = self._clean_room(user_input, current[CONF_ROOM_ID])
+            room = self._clean_room(self.hass, user_input, current[CONF_ROOM_ID])
             if not room[CONF_CLIMATES]:
                 errors[CONF_CLIMATES] = "no_climate"
             elif any(
@@ -309,7 +328,7 @@ class HeatManagerOptionsFlow(OptionsFlow):
                 return await self.async_step_room_temperature()
         return self.async_show_form(
             step_id="edit_room_details",
-            data_schema=_room_schema(user_input or current),
+            data_schema=_room_schema(self.hass, user_input or current),
             errors=errors,
             description_placeholders={"room": current[CONF_ROOM_NAME]},
         )
@@ -380,12 +399,16 @@ class HeatManagerOptionsFlow(OptionsFlow):
         return self.async_show_form(step_id="presence", data_schema=schema)
 
     @staticmethod
-    def _clean_room(user_input: dict[str, Any], room_id: str) -> dict[str, Any]:
+    def _clean_room(hass: Any, user_input: dict[str, Any], room_id: str) -> dict[str, Any]:
+        own = set(_own_climates(hass))
         return {
             CONF_ROOM_ID: room_id,
             CONF_ROOM_NAME: str(user_input[CONF_ROOM_NAME]).strip(),
-            CONF_CLIMATES: list(user_input.get(CONF_CLIMATES) or []),
+            CONF_CLIMATES: [c for c in user_input.get(CONF_CLIMATES) or [] if c not in own],
             CONF_WINDOWS: list(user_input.get(CONF_WINDOWS) or []),
             CONF_SENSORS: list(user_input.get(CONF_SENSORS) or []),
             CONF_AREA: user_input.get(CONF_AREA) or None,
+            CONF_OCCUPANCY: list(user_input.get(CONF_OCCUPANCY) or []),
+            CONF_VACANT_DELAY: int(user_input.get(CONF_VACANT_DELAY) or DEFAULT_VACANT_DELAY),
+            CONF_VACANT_TEMP: float(user_input.get(CONF_VACANT_TEMP) or DEFAULT_VACANT_TEMP),
         }

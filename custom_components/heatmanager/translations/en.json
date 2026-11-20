@@ -38,12 +38,18 @@
           "climates": "Thermostats",
           "windows": "Window/door contacts",
           "area": "Area",
-          "temp_sensors": "Temperature sensors"
+          "temp_sensors": "Temperature sensors",
+          "occupancy_sensors": "Motion / presence sensors",
+          "vacant_delay": "Empty after",
+          "vacant_temp": "Temperature when empty"
         },
         "data_description": {
           "climates": "Thermostats of this room.",
           "windows": "Optional. While any of them is open, the room is set to frost protection.",
-          "temp_sensors": "Optional. One or more room sensors. Without any, the thermostats' own readings are used."
+          "temp_sensors": "Optional. One or more room sensors. Without any, the thermostats' own readings are used.",
+          "occupancy_sensors": "Optional. When all of them have been off for the set time, the room is lowered to the temperature below (only rooms with a profile). Heating resumes as soon as one turns on. Presence sensors (mmWave) suit rooms where people sit still, e.g. bedrooms.",
+          "vacant_delay": "How long all sensors must be off before the room counts as empty.",
+          "vacant_temp": "Maximum target while the room is empty."
         }
       },
       "edit_room": {
@@ -59,11 +65,17 @@
           "climates": "Thermostats",
           "windows": "Window/door contacts",
           "area": "Area",
-          "temp_sensors": "Temperature sensors"
+          "temp_sensors": "Temperature sensors",
+          "occupancy_sensors": "Motion / presence sensors",
+          "vacant_delay": "Empty after",
+          "vacant_temp": "Temperature when empty"
         },
         "data_description": {
           "temp_sensors": "Optional. One or more room sensors. Without any, the thermostats' own readings are used.",
-          "climates": "Thermostats of this room."
+          "climates": "Thermostats of this room.",
+          "occupancy_sensors": "Optional. When all of them have been off for the set time, the room is lowered to the temperature below (only rooms with a profile). Heating resumes as soon as one turns on. Presence sensors (mmWave) suit rooms where people sit still, e.g. bedrooms.",
+          "vacant_delay": "How long all sensors must be off before the room counts as empty.",
+          "vacant_temp": "Maximum target while the room is empty."
         }
       },
       "remove_room": {
@@ -171,7 +183,8 @@
               "override": "Override",
               "away": "Nobody home",
               "vacation": "Vacation",
-              "too_warm": "Too warm at a sensor"
+              "too_warm": "Too warm at a sensor",
+              "vacant": "Room empty"
             }
           }
         }

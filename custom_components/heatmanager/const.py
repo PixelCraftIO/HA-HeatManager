@@ -4,7 +4,7 @@ from __future__ import annotations
 
 DOMAIN = "heatmanager"
 NAME = "HeatManager"
-VERSION = "0.8.3"
+VERSION = "0.9.0"
 
 CONF_ROOMS = "rooms"
 CONF_ROOM_ID = "id"
@@ -27,12 +27,18 @@ CONF_MAX_AGE = "sensor_max_age"
 CONF_UPPER_LIMIT = "upper_limit"
 CONF_CONTROL = "control"
 CONF_EXTERNAL = "external_inputs"
+# Lowering a room while nobody is in it (motion/occupancy/presence sensors)
+CONF_OCCUPANCY = "occupancy_sensors"
+CONF_VACANT_DELAY = "vacant_delay"
+CONF_VACANT_TEMP = "vacant_temp"
 
 DEFAULT_FROST_TEMP = 5.0
 DEFAULT_WINDOW_DELAY = 30
 DEFAULT_BASE_TEMP = 17.0
 DEFAULT_AWAY_TEMP = 16.0
 DEFAULT_AWAY_DELAY = 10  # minutes
+DEFAULT_VACANT_DELAY = 30  # minutes without occupancy before lowering
+DEFAULT_VACANT_TEMP = 17.0
 DEFAULT_MAX_AGE = 60  # minutes without a report before a sensor counts as stale
 # A window-near sensor is ignored while a window is open and this long after
 WINDOW_NEAR_GRACE_MIN = 15
@@ -55,6 +61,7 @@ REASON_OVERRIDE = "override"
 REASON_AWAY = "away"
 REASON_VACATION = "vacation"
 REASON_TOO_WARM = "too_warm"
+REASON_VACANT = "vacant"
 
 DAYS = ("monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday")
 

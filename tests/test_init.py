@@ -8,6 +8,7 @@ from unittest.mock import patch
 
 from freezegun.api import FrozenDateTimeFactory
 from homeassistant.core import HomeAssistant, ServiceCall
+from homeassistant.data_entry_flow import InvalidData
 from homeassistant.helpers import issue_registry as ir
 from homeassistant.setup import async_setup_component
 from homeassistant.util import dt as dt_util
@@ -41,6 +42,8 @@ async def setup(hass: HomeAssistant, freezer: FrozenDateTimeFactory):
     freezer.move_to(dt_util.parse_datetime("2026-11-17T12:00:00+01:00"))  # Tuesday noon
     climate_state(hass, 18)
     hass.states.async_set(WINDOW, "off", {"device_class": "window"})
+    # load the real climate component first so the mock below replaces its service
+    assert await async_setup_component(hass, "climate", {})
     calls: list[ServiceCall] = async_mock_service(hass, "climate", "set_temperature")
 
     def _apply(call: ServiceCall) -> None:  # let the fake thermostat follow commands
@@ -633,3 +636,153 @@ def _fast_store():
         lambda self, data_func, delay=0: self.hass.async_create_task(self.async_save(data_func())),
     ):
         yield
+
+
+def room_climate(hass: HomeAssistant, entry) -> str:
+    """Entity id of the room's own climate entity (climate.kids is taken by the fake thermostat)."""
+    from homeassistant.helpers import entity_registry as er
+
+    entity_id = er.async_get(hass).async_get_entity_id("climate", DOMAIN, f"{entry.entry_id}_r1_climate")
+    assert entity_id is not None
+    return entity_id
+
+
+async def test_room_climate_entity(hass: HomeAssistant, setup) -> None:
+    manager, calls, apply, entry = setup
+    room = room_climate(hass, entry)
+    st = hass.states.get(room)
+    assert st.state == "heat"
+    assert st.attributes["preset_mode"] == "Manual"
+    assert st.attributes["current_temperature"] == 19.5  # thermostat reading as fallback
+    assert st.attributes["temperature"] == 18  # manual: what the thermostat is set to
+
+    pid = manager.save_profile({"name": "Kinder", "base_temp": 17, "week": WEEK_ALL_DAY})
+    await hass.services.async_call(
+        "climate", "set_preset_mode", {"entity_id": room, "preset_mode": "Kinder"}, blocking=True
+    )
+    await hass.async_block_till_done()
+    assert manager.assignments["r1"] == pid
+    assert last_temp(calls) == 21
+    apply(calls[-1])
+    assert hass.states.get(room).attributes["temperature"] == 21
+
+    # a temperature set on the room holds until the plan's next change (22:00)
+    manager.set_room_temperature("r1", 23)
+    await hass.async_block_till_done()
+    assert last_temp(calls) == 23
+    assert manager.overrides["r1"]["until"] == dt_util.parse_datetime("2026-11-17T22:00:00+01:00")
+    apply(calls[-1])
+
+    # off = frost protection, on = back to the profile it had before
+    await hass.services.async_call("climate", "turn_off", {"entity_id": room}, blocking=True)
+    await hass.async_block_till_done()
+    assert manager.assignments["r1"] == "frost"
+    assert hass.states.get(room).state == "off"
+    assert last_temp(calls) == 5
+    apply(calls[-1])
+
+    await hass.config_entries.async_reload(entry.entry_id)  # remembered across restarts
+    await hass.async_block_till_done()
+    manager = entry.runtime_data
+    await hass.services.async_call("climate", "set_hvac_mode", {"entity_id": room, "hvac_mode": "heat"}, blocking=True)
+    await hass.async_block_till_done()
+    assert manager.assignments["r1"] == pid
+    assert last_temp(calls) == 21
+
+
+async def test_room_climate_manual_passes_through(hass: HomeAssistant, setup) -> None:
+    manager, calls, _, entry = setup
+    assert manager.set_room_temperature("r1", 20.5) is None
+    await hass.async_block_till_done()
+    assert last_temp(calls) == 20.5
+    assert "r1" not in manager.overrides
+    with pytest.raises(ValueError):
+        manager.set_room_temperature("r1", 40)
+
+
+async def test_own_climates_not_offered_as_thermostats(hass: HomeAssistant, setup) -> None:
+    _, _, _, entry = setup
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await hass.config_entries.options.async_configure(result["flow_id"], {"next_step_id": "add_room"})
+    with pytest.raises(InvalidData):  # the selector leaves HeatManager's own rooms out
+        await hass.config_entries.options.async_configure(
+            result["flow_id"], {"name": "Bad", "climates": [room_climate(hass, entry), "climate.bath"]}
+        )
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"name": "Bad", "climates": ["climate.bath"]}
+    )
+    assert result["step_id"] == "room_temperature"
+    result = await hass.config_entries.options.async_configure(result["flow_id"], {})
+    bath = next(r for r in entry.options["rooms"] if r["name"] == "Bad")
+    assert bath["climates"] == ["climate.bath"]
+    assert bath["occupancy_sensors"] == [] and bath["vacant_delay"] == 30 and bath["vacant_temp"] == 17
+
+
+async def test_empty_room_is_lowered(hass: HomeAssistant, setup, freezer: FrozenDateTimeFactory) -> None:
+    manager, calls, apply, entry = setup
+    motion, presence = "binary_sensor.kids_motion", "binary_sensor.kids_presence"
+    hass.states.async_set(motion, "off")
+    hass.states.async_set(presence, "on")
+    pid = manager.save_profile({"name": "Kinder", "base_temp": 17, "week": WEEK_ALL_DAY})
+    manager.set_assignment("r1", pid)
+    room = {**entry.options["rooms"][0], "occupancy_sensors": [motion, presence], "vacant_delay": 20, "vacant_temp": 18}
+    hass.config_entries.async_update_entry(entry, options={**entry.options, "rooms": [room]})
+    await hass.async_block_till_done()
+    manager = entry.runtime_data
+    apply(calls[-1])
+    assert last_temp(calls) == 21
+
+    hass.states.async_set(presence, "off")
+    await hass.async_block_till_done()
+    freezer.tick(timedelta(minutes=15))
+    async_fire_time_changed(hass)
+    await hass.async_block_till_done()
+    assert last_temp(calls) == 21  # not yet
+    freezer.tick(timedelta(minutes=6))
+    async_fire_time_changed(hass)
+    await hass.async_block_till_done()
+    assert last_temp(calls) == 18
+    target = hass.states.get("sensor.kids_target_temperature")
+    assert target.attributes["reason"] == "vacant" and target.attributes["vacant"] is True
+    info = manager.as_dict()["rooms"][0]
+    assert info["vacant"] is True and info["vacant_temp"] == 18
+    apply(calls[-1])
+
+    # still empty after a restart: lowered right away
+    await hass.config_entries.async_reload(entry.entry_id)
+    await hass.async_block_till_done()
+    manager = entry.runtime_data
+    assert manager.runtime["r1"].vacant is True
+
+    hass.states.async_set(motion, "on")
+    await hass.async_block_till_done()
+    assert last_temp(calls) == 21
+    assert manager.runtime["r1"].vacant is False
+
+
+async def test_empty_room_unsure_sensor_keeps_warm(hass: HomeAssistant, setup, freezer: FrozenDateTimeFactory) -> None:
+    manager, calls, apply, entry = setup
+    motion = "binary_sensor.kids_motion"
+    hass.states.async_set(motion, "unavailable")
+    pid = manager.save_profile({"name": "Kinder", "base_temp": 17, "week": WEEK_ALL_DAY})
+    manager.set_assignment("r1", pid)
+    room = {**entry.options["rooms"][0], "occupancy_sensors": [motion], "vacant_delay": 10, "vacant_temp": 16}
+    hass.config_entries.async_update_entry(entry, options={**entry.options, "rooms": [room]})
+    await hass.async_block_till_done()
+    manager = entry.runtime_data
+    freezer.tick(timedelta(minutes=30))
+    async_fire_time_changed(hass)
+    await hass.async_block_till_done()
+    assert manager.runtime["r1"].vacant is False
+    assert last_temp(calls) == 21
+    # the empty-room temperature never raises a lower plan
+    room = {**room, "vacant_temp": 22}
+    hass.states.async_set(motion, "off")
+    hass.config_entries.async_update_entry(entry, options={**entry.options, "rooms": [room]})
+    await hass.async_block_till_done()
+    freezer.tick(timedelta(minutes=11))
+    async_fire_time_changed(hass)
+    await hass.async_block_till_done()
+    manager = entry.runtime_data
+    assert manager.runtime["r1"].vacant is True
+    assert manager.runtime["r1"].reason == "profile_block"
