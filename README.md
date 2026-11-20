@@ -1,85 +1,83 @@
-# HeatManager for Home Assistant
+# HeatManager für Home Assistant
 
-Weekly heating profiles with a visual 7‑day grid, profiles you assign to rooms, window detection and a pause function – as one integration with its own dashboard card.
+Wöchentliche Heizprofile mit einem grafischen 7‑Tage-Raster, Profile, die du Räumen zuweist, Fenstererkennung und eine Pausenfunktion – als eine Integration mit eigener Dashboard-Karte.
 
-*Deutsche Kurzbeschreibung weiter unten.*
+## Funktionen
 
-## Features
-
-- **Heating profiles** (e.g. “Kids”, “Bathroom”, “Home office”): mark time blocks in a Monday–Sunday grid by dragging, give each block its own temperature. Outside the blocks the profile’s base temperature applies.
-- **Today at a glance**: a slim timeline with one row per room shows when each room heats today (hide it with `show_today: false`).
-- **Profiles** can be renamed and get a new icon and colour at any time (*Edit* next to the grid).
-- **Rooms**: one or more thermostats per room, optional window/door contacts. Each room follows a profile, *Frost protection* or *Manual* (left alone).
-- **Room temperature from several sensors**: add any number of temperature sensors to a room. HeatManager combines them (weighted mean, lowest, highest, or a main sensor with the others as fallback), ignores sensors that are unavailable or have not reported for a while (default 60 min) and falls back to the thermostats' own readings. Sensors near a window can be ignored while it is open. An optional **upper limit** stops heating while any sensor is too far above the target (e.g. warm at the bed, cold at the window).
-- **How thermostats use it** (per room): *Thermostat controls itself* (default, same setpoint for all), *Send room temperature to the thermostats* (for devices with an external temperature input, refreshed at least every 15 min) or *Compensate each thermostat's setpoint* (works with any thermostat: a thermostat reading 1.5 K too warm gets 1.5 K more).
-- **Window open**: after a configurable delay (default 30 s) the room drops to frost protection. When the window closes, the profile takes over again – or, for manual rooms and while paused, the previous setpoint is restored.
-- **Override a room**: from the card (thermometer button on the room) or the `heatmanager.override_room` action hold one room at e.g. 22 °C for 1/2/4 h or until its next change in the profile – then it returns to its plan by itself.
-- **Pause**: for 2 h, 8 h, 24 h, a week or until a date – thermostats keep their current temperature, the schedule resumes automatically.
-- **Away**: optionally link persons/device trackers (Configure → *Away & presence*). When nobody has been home for a while (default 10 min), rooms with a profile are lowered to an away temperature (default 16 °C) and come back as soon as somebody is home.
-- **Empty rooms**: optionally give a room motion or presence sensors (any `binary_sensor`, `on` = somebody there). When all of them have been off for a while (default 30 min), the room is lowered to its empty-room temperature (default 17 °C) and heats normally again as soon as one turns on. Only rooms with a profile, and never above the plan. A sensor that is unavailable keeps the room warm. For rooms where people sit still or sleep, presence sensors (mmWave) work better than motion sensors.
-- **Every room is a thermostat**: HeatManager adds one `climate` entity per room. Use it with the thermostat tile, voice assistants (Assist, Alexa, Google) or HomeKit: the room temperature is the combined reading, the presets are your heating profiles, *Off* sets the room to frost protection and *Heat* brings back the profile it had before. A temperature set there holds until the profile changes next (rooms on *Manual*: it goes straight to the thermostats).
-- **Vacation**: frost protection in all scheduled rooms until a date (card button *Vacation…* or `heatmanager.start_vacation`), then the schedule continues. Unlike the pause, which only holds the current temperatures.
-- **Manual changes are respected** until the next change in the profile.
-- **Reliable sending**: if a thermostat does not confirm a new setpoint, it is sent again (after 1, 2 and 5 minutes); thermostats that come back online get the current target.
-- **Thermostat problems are reported**: if a thermostat still ignores its setpoint after the retries, stops responding altogether (no update at all, e.g. lost Zigbee connection while Home Assistant still shows old values), or is unavailable for over an hour, the card marks the room and Home Assistant shows a repair notice (Settings → Repairs). Both disappear once the device works again.
-- Works with any `climate` entity (Homematic IP, Zigbee2MQTT, ZHA, Tado, …). No cloud, no YAML.
+- **Heizprofile** (z. B. „Kinder“, „Bad“, „Homeoffice“): Zeitblöcke im Raster Montag–Sonntag per Ziehen markieren, jeder Block bekommt seine eigene Temperatur. Außerhalb der Blöcke gilt die Grundtemperatur des Profils.
+- **Heute auf einen Blick**: Eine schmale Zeitleiste mit einer Zeile pro Raum zeigt, wann heute in welchem Raum geheizt wird (ausblenden mit `show_today: false`).
+- **Profile** lassen sich jederzeit umbenennen und bekommen ein neues Symbol und eine neue Farbe (*Bearbeiten* neben dem Raster).
+- **Räume**: ein oder mehrere Thermostate pro Raum, optional Fenster-/Türkontakte. Jeder Raum folgt einem Profil, *Frostschutz* oder *Manuell* (wird in Ruhe gelassen).
+- **Raumtemperatur aus mehreren Sensoren**: Einem Raum lassen sich beliebig viele Temperatursensoren hinzufügen. HeatManager kombiniert sie (gewichteter Mittelwert, niedrigster Wert, höchster Wert oder ein Hauptsensor mit den anderen als Ersatz), ignoriert Sensoren, die nicht verfügbar sind oder sich eine Weile nicht gemeldet haben (Standard 60 Min.), und greift ersatzweise auf die Messwerte der Thermostate zurück. Sensoren in Fensternähe können bei offenem Fenster ignoriert werden. Eine optionale **Obergrenze** stoppt das Heizen, solange ein Sensor zu weit über dem Sollwert liegt (z. B. warm am Bett, kalt am Fenster).
+- **Wie die Thermostate sie nutzen** (pro Raum): *Thermostat regelt selbst* (Standard, gleicher Sollwert für alle), *Raumtemperatur an die Thermostate senden* (für Geräte mit externem Temperatureingang, mindestens alle 15 Min. aktualisiert) oder *Sollwert je Thermostat ausgleichen* (funktioniert mit jedem Thermostat: Ein Thermostat, das 1,5 K zu warm misst, bekommt 1,5 K mehr).
+- **Fenster offen**: Nach einer einstellbaren Verzögerung (Standard 30 s) geht der Raum auf Frostschutz. Wird das Fenster geschlossen, übernimmt wieder das Profil – bzw. bei manuellen Räumen und während einer Pause wird der vorherige Sollwert wiederhergestellt.
+- **Raum übersteuern**: Über die Karte (Thermometer-Symbol am Raum) oder die Aktion `heatmanager.override_room` einen Raum z. B. 1/2/4 Std. oder bis zum nächsten Wechsel im Profil auf 22 °C halten – danach kehrt er von selbst zu seinem Plan zurück.
+- **Pause**: für 2 Std., 8 Std., 24 Std., eine Woche oder bis zu einem Datum – die Thermostate behalten ihre aktuelle Temperatur, der Zeitplan läuft danach automatisch weiter.
+- **Abwesenheit**: Optional Personen/Geräte-Tracker verknüpfen (Konfigurieren → *Abwesenheit*). Ist eine Weile niemand zu Hause (Standard 10 Min.), werden Räume mit Profil auf eine Abwesenheitstemperatur abgesenkt (Standard 16 °C) und kehren zurück, sobald jemand heimkommt.
+- **Leere Räume**: Einem Raum optional Bewegungs- oder Präsenzmelder geben (jeder `binary_sensor`, `on` = jemand da). Sind alle eine Weile aus (Standard 30 Min.), wird der Raum auf seine Temperatur für leere Räume abgesenkt (Standard 17 °C) und heizt wieder normal, sobald einer anspricht. Nur für Räume mit Profil und nie über den Plan hinaus. Ein nicht verfügbarer Sensor hält den Raum warm. Für Räume, in denen man still sitzt oder schläft, eignen sich Präsenzmelder (mmWave) besser als Bewegungsmelder.
+- **Jeder Raum ist ein Thermostat**: HeatManager legt pro Raum eine `climate`-Entität an. Nutzbar mit der Thermostat-Kachel, Sprachassistenten (Assist, Alexa, Google) oder HomeKit: Die Raumtemperatur ist der kombinierte Messwert, die Voreinstellungen sind deine Heizprofile, *Aus* setzt den Raum auf Frostschutz und *Heizen* holt das vorherige Profil zurück. Eine dort eingestellte Temperatur gilt bis zum nächsten Wechsel im Profil (Räume auf *Manuell*: Sie geht direkt an die Thermostate).
+- **Urlaub**: Frostschutz in allen Räumen mit Plan bis zu einem Datum (Karten-Button *Urlaub…* oder `heatmanager.start_vacation`), danach läuft der Plan weiter. Anders als die Pause, die nur die aktuellen Temperaturen hält.
+- **Manuelle Änderungen werden respektiert** bis zum nächsten Wechsel im Profil.
+- **Zuverlässiges Senden**: Bestätigt ein Thermostat einen neuen Sollwert nicht, wird er erneut gesendet (nach 1, 2 und 5 Minuten); Thermostate, die wieder online kommen, bekommen den aktuellen Sollwert.
+- **Thermostat-Probleme werden gemeldet**: Ignoriert ein Thermostat seinen Sollwert auch nach den Wiederholungen, reagiert es gar nicht mehr (überhaupt keine Aktualisierung, z. B. Zigbee-Verbindung verloren, während Home Assistant noch alte Werte zeigt) oder ist es über eine Stunde nicht verfügbar, markiert die Karte den Raum und Home Assistant zeigt einen Reparaturhinweis (Einstellungen → Reparaturen). Beides verschwindet, sobald das Gerät wieder funktioniert.
+- Funktioniert mit jeder `climate`-Entität (Homematic IP, Zigbee2MQTT, ZHA, Tado, …). Keine Cloud, kein YAML.
 
 ## Installation
 
-### HACS / Marketplace (custom repository)
+### HACS / Marketplace (benutzerdefiniertes Repository)
 
-1. Marketplace (HACS) → ⋮ → **Custom repositories** → add `https://github.com/PixelDevIO/HA-HeatManager`, category **Integration**.
-2. Install **HeatManager** and restart Home Assistant.
+1. Marketplace (HACS) → ⋮ → **Benutzerdefinierte Repositories** → `https://github.com/PixelDevIO/HA-HeatManager` hinzufügen, Kategorie **Integration**.
+2. **HeatManager** installieren und Home Assistant neu starten.
 
-### Manual
+### Manuell
 
-Copy `custom_components/heatmanager` into your `config/custom_components/` folder and restart Home Assistant.
+`custom_components/heatmanager` in deinen Ordner `config/custom_components/` kopieren und Home Assistant neu starten.
 
-## Setup
+## Einrichtung
 
-1. **Settings → Devices & services → Add integration → HeatManager.** Choose the frost protection temperature and the window delay.
-2. Open HeatManager → **Configure** → **Add room**: name, thermostat(s), optional window contacts, temperature sensors and area. The second page sets how the room temperature is formed and how the thermostats use it; the defaults behave exactly like before.
-3. Add the card to a dashboard (the card is loaded automatically, no resource needed):
+1. **Einstellungen → Geräte & Dienste → Integration hinzufügen → HeatManager.** Frostschutztemperatur und Fensterverzögerung wählen.
+2. HeatManager öffnen → **Konfigurieren** → **Raum hinzufügen**: Name, Thermostat(e), optional Fensterkontakte, Temperatursensoren und Bereich. Auf der zweiten Seite legst du fest, wie die Raumtemperatur gebildet wird und wie die Thermostate sie nutzen; die Standardwerte verhalten sich genau wie bisher.
+3. Die Karte zu einem Dashboard hinzufügen (die Karte wird automatisch geladen, keine Ressource nötig):
 
    ```yaml
    type: custom:heatmanager-card
    ```
 
-   HeatManager also keeps a small entry named *HeatManager card loader* under **Settings → Dashboards → Resources**. It makes the card appear on dashboards that were opened while Home Assistant was still starting, without reloading the browser. It is removed together with the integration. With YAML resources (`resource_mode: yaml`) nothing is added there.
+   HeatManager legt außerdem einen kleinen Eintrag namens *HeatManager card loader* unter **Einstellungen → Dashboards → Ressourcen** an. Er sorgt dafür, dass die Karte auch auf Dashboards erscheint, die geöffnet wurden, während Home Assistant noch startete, ohne den Browser neu zu laden. Er wird zusammen mit der Integration entfernt. Bei YAML-Ressourcen (`resource_mode: yaml`) wird dort nichts hinzugefügt.
 
-   Tip: put it in a view of type **Panel** to give the grid the full width. Options: `show_today: false` hides the timeline, `hour_height` (default 22) sets the grid row height.
+   Tipp: Die Karte in eine Ansicht vom Typ **Panel** legen, damit das Raster die volle Breite bekommt. Optionen: `show_today: false` blendet die Zeitleiste aus, `hour_height` (Standard 22) legt die Zeilenhöhe des Rasters fest.
 
-4. In the card create profiles with **New profile**, drag time blocks into the grid and assign profiles to rooms.
-   Every section (Today, Profiles, Rooms) folds via its header and the card remembers this per browser. The week grid shows as a compact 7‑day preview; tap it (or select/create a profile) to edit.
-   To delete several blocks at once, tap **Select**, mark blocks (or tap a weekday for the whole day, or **All**) and tap **Delete**. Nothing is stored until **Save**, and **Undo** brings them back.
-   On touch screens a normal swipe scrolls the page; **press and hold** a moment, then drag to create or move a block. A short tap opens a block.
+4. In der Karte mit **Neues Profil** Profile anlegen, Zeitblöcke ins Raster ziehen und den Räumen Profile zuweisen.
+   Jeder Abschnitt (Heute, Profile, Räume) lässt sich über seine Überschrift einklappen, die Karte merkt sich das pro Browser. Das Wochenraster erscheint als kompakte 7‑Tage-Vorschau; zum Bearbeiten antippen (oder ein Profil auswählen/anlegen).
+   Um mehrere Blöcke auf einmal zu löschen, **Auswählen** antippen, Blöcke markieren (oder einen Wochentag für den ganzen Tag antippen, oder **Alle**) und **Löschen** antippen. Gespeichert wird erst mit **Speichern**, und **Rückgängig** holt sie zurück.
+   Auf Touchscreens scrollt normales Wischen die Seite; **kurz gedrückt halten**, dann ziehen, um einen Block anzulegen oder zu verschieben. Kurzes Antippen öffnet einen Block.
 
-Editing profiles requires an administrator account; everybody can assign profiles and pause.
+Profile bearbeiten erfordert ein Administratorkonto; Profile zuweisen und pausieren kann jeder.
 
-## Entities
+## Entitäten
 
-| Entity | Description |
+| Entität | Beschreibung |
 |---|---|
-| `climate.<room>` | The room as one thermostat: room temperature, target, presets = profiles, *Off* = frost protection |
-| `select.<room>_heating_profile` | Profile of the room (incl. *Frost protection* and *Manual*) |
-| `sensor.<room>_target_temperature` | Target HeatManager sets; attributes `reason`, `profile`, `window_open`, `next_change`, `next_temperature`, `override_until`, `problems`, `vacant` |
-| `sensor.<room>_room_temperature` | Actual room temperature (sensors combined, thermostats as fallback); attributes `source`, `method`, `sensors`, `valid_sensors`, `too_warm`, `control` |
-| `switch.heatmanager_schedule_paused` | On while paused; attribute `until` |
+| `climate.<room>` | Der Raum als ein Thermostat: Raumtemperatur, Sollwert, Voreinstellungen = Profile, *Aus* = Frostschutz |
+| `select.<room>_heating_profile` | Profil des Raums (inkl. *Frostschutz* und *Manuell*) |
+| `sensor.<room>_target_temperature` | Sollwert, den HeatManager setzt; Attribute `reason`, `profile`, `window_open`, `next_change`, `next_temperature`, `override_until`, `problems`, `vacant` |
+| `sensor.<room>_room_temperature` | Tatsächliche Raumtemperatur (Sensoren kombiniert, Thermostate als Ersatz); Attribute `source`, `method`, `sensors`, `valid_sensors`, `too_warm`, `control` |
+| `switch.heatmanager_schedule_paused` | An während einer Pause; Attribut `until` |
 
-Room devices are named after the room (e.g. *Kids Heating profile*). Installations from before 0.6.0 keep their existing entity IDs (`select.heatmanager_<room>_…`).
+Die Geräte der Räume sind nach dem Raum benannt (z. B. *Kinder Heizprofil*). Home Assistant bildet die Entitäts-IDs aus dem Namen in der Sprache der Oberfläche, bei deutscher Oberfläche also z. B. `select.<raum>_heizprofil`. Installationen von vor 0.6.0 behalten ihre bestehenden Entitäts-IDs (`select.heatmanager_<room>_…`).
 
-## Actions
+## Aktionen
 
-| Action | Data |
+| Aktion | Daten |
 |---|---|
-| `heatmanager.pause` | optional `duration` (e.g. `"02:00:00"`) or `until` (datetime). Without either: until resumed |
+| `heatmanager.pause` | optional `duration` (z. B. `"02:00:00"`) oder `until` (Datum/Uhrzeit). Ohne beides: bis zur Fortsetzung |
 | `heatmanager.resume` | – |
-| `heatmanager.override_room` | `room` (name or id), `temperature`, and `duration`, `until` or `until_next_change: true`. Without an end: until cleared |
+| `heatmanager.override_room` | `room` (Name oder ID), `temperature` und `duration`, `until` oder `until_next_change: true`. Ohne Ende: bis zum Aufheben |
 | `heatmanager.clear_room_override` | `room` |
-| `heatmanager.start_vacation` | `until` (datetime) |
+| `heatmanager.start_vacation` | `until` (Datum/Uhrzeit) |
 | `heatmanager.end_vacation` | – |
 
-Example – pause while everybody is away:
+Beispiel – pausieren, während alle unterwegs sind:
 
 ```yaml
 action: heatmanager.pause
@@ -87,45 +85,33 @@ data:
   duration: "08:00:00"
 ```
 
-## How targets are chosen
+## Wie der Sollwert bestimmt wird
 
-For each room, in this order:
+Für jeden Raum, in dieser Reihenfolge:
 
-1. A window has been open longer than the delay → frost protection temperature
-2. Room overridden → the override temperature until its end
-3. Vacation (rooms with a profile or frost protection) → frost protection temperature
-4. Schedule paused → leave the thermostat alone
-5. Room set to *Frost protection* → frost protection temperature
-6. Room set to *Manual* → leave the thermostat alone
-7. Otherwise the profile: temperature of the active time block, else the base temperature – at most the away temperature while nobody is home, and at most the room's empty-room temperature while its motion/presence sensors report nobody
-8. Upper limit set and a sensor too far above that target → the profile's base temperature (or frost protection) until it is 0.5 K below the limit again
+1. Ein Fenster ist länger als die Verzögerung offen → Frostschutztemperatur
+2. Raum übersteuert → die Übersteuerungstemperatur bis zu ihrem Ende
+3. Urlaub (Räume mit Profil oder Frostschutz) → Frostschutztemperatur
+4. Zeitplan pausiert → Thermostat wird in Ruhe gelassen
+5. Raum auf *Frostschutz* → Frostschutztemperatur
+6. Raum auf *Manuell* → Thermostat wird in Ruhe gelassen
+7. Sonst das Profil: Temperatur des aktiven Zeitblocks, sonst die Grundtemperatur – höchstens die Abwesenheitstemperatur, solange niemand zu Hause ist, und höchstens die Temperatur für leere Räume, solange die Bewegungs-/Präsenzmelder des Raums niemanden melden
+8. Obergrenze gesetzt und ein Sensor zu weit über diesem Sollwert → Grundtemperatur des Profils (oder Frostschutz), bis er wieder 0,5 K unter der Grenze liegt
 
-HeatManager only sends when the target changes (block start/end, profile or assignment change, window, end of pause). Changes made on the thermostat itself therefore last until the next change in the profile.
+HeatManager sendet nur, wenn sich der Sollwert ändert (Blockbeginn/-ende, Profil- oder Zuweisungswechsel, Fenster, Ende der Pause). Änderungen direkt am Thermostat gelten deshalb bis zum nächsten Wechsel im Profil.
 
-## Tips for thermostats with their own schedule
+## Tipps für Thermostate mit eigenem Zeitplan
 
-Put thermostats into a manual/heat mode so their internal week program does not fight HeatManager (e.g. Homematic IP: *Manu* instead of *Auto*; Sonoff TRVZB: `heat` instead of `auto`).
+Thermostate in einen manuellen bzw. Heizmodus stellen, damit ihr internes Wochenprogramm nicht gegen HeatManager arbeitet (z. B. Homematic IP: *Manu* statt *Auto*; Sonoff TRVZB: `heat` statt `auto`).
 
----
+## Fehler melden
 
-## Deutsch
-
-HeatManager steuert Thermostate über **Heizprofile mit Wochenraster**. Zeitblöcke werden mit der Maus ins Raster gezogen (auf dem Tablet: kurz gedrückt halten, dann ziehen; normales Wischen scrollt), jeder Block bekommt eine eigene Temperatur, außerhalb gilt die Grundtemperatur. Alle Abschnitte der Karte lassen sich über ihre Überschrift einklappen (wird pro Browser gemerkt); das Wochenraster erscheint als kompakte Vorschau und öffnet sich per Antippen, bei Profilauswahl oder beim Anlegen eines Profils. Räume (ein oder mehrere Thermostate, optional Fensterkontakte) bekommen ein Profil, *Frostschutz* oder *Manuell*.
-
-**Fenster offen** → nach 30 s Frostschutz, beim Schließen zurück zum Profil bzw. zur vorherigen Temperatur. **Raum übersteuern**: über das Thermometer-Symbol am Raum z. B. 2 Std. auf 22 °C oder bis zum nächsten Wechsel, danach zurück zum Plan. **Abwesenheit**: optional Personen verknüpfen (Konfigurieren › Abwesenheit); ist niemand zu Hause, gilt eine Absenktemperatur. **Leerer Raum**: optional Bewegungs- oder Präsenzmelder je Raum; sind alle eine Weile aus (Standard 30 Min.), wird der Raum auf seine Temperatur für leere Räume abgesenkt (Standard 17 °C), sobald einer anspricht, wird wieder normal geheizt. **Jeder Raum als Thermostat**: pro Raum eine `climate`-Entität für die Thermostat-Kachel, Sprachassistenten oder HomeKit; Voreinstellungen sind die Heizprofile, *Aus* = Frostschutz, *Heizen* = vorheriges Profil, eine dort eingestellte Temperatur gilt bis zum nächsten Wechsel im Profil. **Urlaub**: Frostschutz bis zu einem Datum, danach läuft der Plan weiter. **Pause** für Stunden, eine Woche oder bis zu einem Datum. Manuelle Änderungen am Thermostat gelten bis zum nächsten Wechsel im Profil. **Raumtemperatur**: pro Raum beliebig viele Temperatursensoren, kombiniert als (gewichteter) Mittelwert, Minimum, Maximum oder Hauptsensor; ausgefallene oder zu lange stumme Sensoren zählen nicht, ersatzweise gelten die Thermostate. Fensternahe Sensoren zählen bei offenem Fenster nicht, eine Obergrenze verhindert Überheizen. Pro Raum wählbar: Thermostat regelt selbst, Raumtemperatur ans Thermostat senden oder Sollwert je Thermostat ausgleichen. Nimmt ein Thermostat Sollwerte dauerhaft nicht an oder ist es über eine Stunde nicht erreichbar, zeigt die Karte das am Raum und Home Assistant erzeugt einen Reparaturhinweis.
-
-Die Zeitleiste **Heute** zeigt pro Raum, wann geheizt wird. Profile lassen sich jederzeit umbenennen, Symbol und Farbe ändern (*Bearbeiten*).
-
-Einrichtung: Integration hinzufügen → **Konfigurieren** → Räume anlegen → Karte `type: custom:heatmanager-card` aufs Dashboard (am besten in eine Ansicht vom Typ *Panel*).
-
-## Bug reports
-
-Please attach diagnostics: **Settings → Devices & services → HeatManager → ⋮ → Download diagnostics**. They contain rooms, profiles and the thermostat states HeatManager sees (presence entities are left out).
+Bitte Diagnosedaten anhängen: **Einstellungen → Geräte & Dienste → HeatManager → ⋮ → Diagnosedaten herunterladen**. Sie enthalten Räume, Profile und die Thermostatzustände, die HeatManager sieht (Anwesenheits-Entitäten werden weggelassen).
 
 ## Releases
 
-Every version bump on `main` creates a GitHub release automatically (`.github/workflows/release.yml`), which HACS offers as an update.
+Jede Versionserhöhung auf `main` erzeugt automatisch ein GitHub-Release (`.github/workflows/release.yml`), das HACS als Update anbietet.
 
-## License
+## Lizenz
 
 MIT
