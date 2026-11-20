@@ -2,6 +2,22 @@
 
 Wöchentliche Heizprofile mit einem grafischen 7‑Tage-Raster, Profile, die du Räumen zuweist, Fenstererkennung und eine Pausenfunktion – als eine Integration mit eigener Dashboard-Karte.
 
+![HeatManager-Karte in Home Assistant: Pause, Zeitleiste „Heute“, Heizprofile und Räume](docs/images/karte-uebersicht.png)
+
+## So sieht es aus
+
+Die Karte zeigt oben den Status des Heizplans mit Pause und Urlaub, darunter die Zeitleiste **Heute** (eine Zeile pro Raum), die **Heizprofile** und die **Räume** mit Ist- und Solltemperatur. Ein offenes Fenster wird direkt am Raum angezeigt.
+
+Ein Profil antippen öffnet seinen Wochenplan. Zeitblöcke werden ins Raster gezogen, jeder Block hat seine eigene Temperatur:
+
+![Wochenplan eines Heizprofils](docs/images/karte-wochenplan.png)
+
+Jeder Raum ist zusätzlich eine eigene `climate`-Entität. Die Voreinstellungen sind die Heizprofile, so lässt sich der Raum mit der normalen Thermostat-Karte, per Sprachassistent oder über HomeKit bedienen:
+
+![Räume als Thermostat-Karten mit Heizprofil als Voreinstellung](docs/images/raeume-als-thermostat.png)
+
+<sub>Die Screenshots stammen aus einer Test-Installation mit Demo-Räumen und virtuellen Thermostaten.</sub>
+
 ## Funktionen
 
 - **Heizprofile** (z. B. „Kinder“, „Bad“, „Homeoffice“): Zeitblöcke im Raster Montag–Sonntag per Ziehen markieren, jeder Block bekommt seine eigene Temperatur. Außerhalb der Blöcke gilt die Grundtemperatur des Profils.
@@ -37,6 +53,9 @@ Wöchentliche Heizprofile mit einem grafischen 7‑Tage-Raster, Profile, die du 
 
 1. **Einstellungen → Geräte & Dienste → Integration hinzufügen → HeatManager.** Frostschutztemperatur und Fensterverzögerung wählen.
 2. HeatManager öffnen → **Konfigurieren** → **Raum hinzufügen**: Name, Thermostat(e), optional Fensterkontakte, Temperatursensoren und Bereich. Auf der zweiten Seite legst du fest, wie die Raumtemperatur gebildet wird und wie die Thermostate sie nutzen; die Standardwerte verhalten sich genau wie bisher.
+
+   <img src="docs/images/raum-einrichten.png" alt="Raum einrichten: Thermostate, Fensterkontakte, Temperatursensoren, Bewegungsmelder" width="420">
+
 3. Die Karte zu einem Dashboard hinzufügen (die Karte wird automatisch geladen, keine Ressource nötig):
 
    ```yaml
